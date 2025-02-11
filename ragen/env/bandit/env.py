@@ -174,15 +174,15 @@ class TwoArmedBanditEnv(BaseDiscreteActionEnv, gym.Env):
         self.reward = 0
 
     def _gold_arm_reward_distribution(self):
-        """f ~ N(10, 1)"""
-        return self.np_random.normal(10, 1)
+        """f ~ N(0.05, 0.01)"""
+        return self.np_random.normal(0.05, 0.1)
 
     def _silver_arm_reward_distribution(self):
-        """s ~ 99/100 * N(5, 9) + 1/100 * N(10000, 4)"""
-        if self.np_random.random() < 0.99:
-            return self.np_random.normal(5, 9)
+        """s ~ 9/10 * N(0.01, 0.01) + 1/10 * N(1, 4)"""
+        if self.np_random.random() < 0.9:
+            return self.np_random.normal(0.01, 0.1)
         else:
-            return self.np_random.normal(10000, 4)
+            return self.np_random.normal(1, 2)
 
     def reset(self, seed=None, mode='text'):
         """Reset the environment and reward distributions"""
@@ -269,5 +269,14 @@ if __name__ == "__main__":
     env = TwoArmedBanditEnv(first_gold_arm=True)
     print(env.reset(seed=0))
     print(env.step(1))
+
+    # r = []
+    # for i in range(500000):
+    #     env.reset(seed=i)
+    #     r1 = env._gold_arm_reward_distribution()
+    #     r2 = env._silver_arm_reward_distribution()
+    #     # r.append(r1 > r2)
+    #     r.append(r2)
+    # print(np.mean(r))
 
     # print(BanditEnv.execute_predictions([env], ["<answer>9</answer>"], "<PAD>"))

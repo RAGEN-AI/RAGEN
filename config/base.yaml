@@ -25,6 +25,7 @@ training:
   n_rollout: 1
   total_epochs: 5
   use_kl_loss: False # this means actor KL Loss
+  no_think_rl: False
 
 # Optimization parameters
 optimization:

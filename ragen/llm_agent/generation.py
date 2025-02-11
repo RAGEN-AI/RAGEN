@@ -22,6 +22,7 @@ class GenerationConfig:
     max_obs_length: int
     logging: dict
     num_gpus: int
+    no_think_rl: bool=False
 
 class LLMGenerationManager:
     def __init__(
@@ -52,7 +53,7 @@ class LLMGenerationManager:
             padding="longest"
         )['input_ids']
 
-    def _postprocess_responses(self, responses: torch.Tensor) -> torch.Tensor:
+    def _postprocess_responses(self, responses: torch.Tensor,envs:List[Any]) -> torch.Tensor:
         """Process responses to remove 1. multiple answers or 2. reward hacking attempts."""
         # Remove everything after </answer> but keep the tag
         responses_str = self.tokenizer.batch_decode(
@@ -69,7 +70,11 @@ class LLMGenerationManager:
         if hacked:
             print(f"[WARNING] HACKED RESPONSES: {hacked}")
         responses_str = [re.sub(hack_pattern, '', resp) for resp in responses_str]
-        
+        if self.config.no_think_rl:
+            # if no_think_rl is enabled, only keep action in the str
+            actions,_=self.env_class.postprocess_predictions(envs, responses_str)
+            responses_str=[f"<answer>{action}</answer>" for action in actions]
+        print("RESPONSES:", responses_str)
         responses = self._batch_tokenize(responses_str)
         return responses, responses_str
 
@@ -207,7 +212,7 @@ class LLMGenerationManager:
             gen_output = self._generate_with_gpu_padding(rollings_active)
 
             meta_info = gen_output.meta_info            
-            responses_ids, responses_str = self._postprocess_responses(gen_output.batch['responses'])
+            responses_ids, responses_str = self._postprocess_responses(gen_output.batch['responses'],envs=envs)
             responses_ids, responses_str = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)
 
             # Update visualization
@@ -217,6 +222,7 @@ class LLMGenerationManager:
             next_obs, dones = self.env_class.execute_predictions(
                 envs, responses_str, self.tokenizer.pad_token
             )
+            
             active_mask = torch.tensor([not done for done in dones], dtype=torch.bool)
             active_num_list.append(active_mask.sum().item())
             next_obs_ids = self._process_next_obs(next_obs)
@@ -233,7 +239,7 @@ class LLMGenerationManager:
                 next_obs_ids
             )
         print("ACTIVE_TRAJ_NUM:", active_num_list)
-
+        
         # Save trajectory and return final output
         self._save_trajectory(trajectory, output_dir, global_steps)
         return self._compose_final_output(original_left_side, original_right_side, meta_info)

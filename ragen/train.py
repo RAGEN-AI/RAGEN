@@ -89,6 +89,7 @@ def get_train_command(config: Dict[str, Any]) -> str:
         f"critic.model.path={config['model']['base_model']}",
         f"critic.ppo_micro_batch_size={config['training']['micro_batch_size']}",
         f"algorithm.kl_ctrl.kl_coef={config['optimization']['kl_coef']}",
+        f"algorithm.no_think_rl={config['training']['no_think_rl']}",
         f"actor_rollout_ref.rollout.n_agent={config['training']['n_rollout']}",
         f"trainer.logger={config['logging']['mode']}",
         f"+trainer.val_before_train={str(config['trainer']['val_before_train']).lower()}",

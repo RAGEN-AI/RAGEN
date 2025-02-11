@@ -19,14 +19,15 @@ from verl import DataProto
 import torch
 import verl.utils.reward_score.countdown as countdown
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from ragen.env import SokobanEnv, FrozenLakeEnv, BanditEnv
+from ragen.env import SokobanEnv, FrozenLakeEnv, BanditEnv, TwoArmedBanditEnv
 import re
 import numpy as np
 
 ENV_CLASS_MAPPING = {
     'sokoban': SokobanEnv,
     'frozenlake': FrozenLakeEnv,
-    'bandit': BanditEnv
+    'bandit': BanditEnv,
+    'two_armed_bandit': TwoArmedBanditEnv
 }
 
 def _select_rm_score_fn(data_source):
@@ -237,6 +238,8 @@ def main_task(config):
         env = env_class(size=config.env.size, p=config.env.p)
     elif config.env.name == 'bandit':
         env = env_class(n_arms=config.env.n_arms)
+    elif config.env.name == 'two_armed_bandit':
+        env = env_class(first_gold_arm=config.env.first_gold_arm)
     elif config.env.name == 'sokoban':
         env = env_class(dim_room=(config.env.dim_x, config.env.dim_y), num_boxes=config.env.num_boxes, max_steps=config.env.max_steps, search_depth=config.env.search_depth)
     trainer = RayPPOTrainer(config=config,

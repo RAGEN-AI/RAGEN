@@ -73,8 +73,8 @@ class LLMGenerationManager:
         if self.config.no_think_rl:
             # if no_think_rl is enabled, only keep action in the str
             actions,_=self.env_class.postprocess_predictions(envs, responses_str)
-            responses_str=[f"<answer>{action}</answer>" for action in actions]
-        print("RESPONSES:", responses_str)
+            responses_str=[f"<answer>{self.env_class.ACTION_LOOKUP[action]}</answer>" for action in actions]
+            print("RESPONSES:", responses_str)
         responses = self._batch_tokenize(responses_str)
         return responses, responses_str
 

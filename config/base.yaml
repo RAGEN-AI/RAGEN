@@ -117,6 +117,7 @@ agent_proxy:
     method: "identity" # asym_clip / identity / mean_std
 
 es_manager:
+  environments: ["DeepResearch"]
   format_penalty: -0.1
   train:
     env_groups: 8

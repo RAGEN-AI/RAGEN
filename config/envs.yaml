@@ -4,9 +4,7 @@ custom_envs:
     max_actions_per_traj: 40
     env_instruction: "Follow user command, call search, draft sections"
     max_tokens: 8192
-    env_config:
-      user_prompt: "Write a deep-research article on {topic}"
-      
+
   SimpleSokoban:
     env_type: sokoban
     max_actions_per_traj: 10 # used in environment state manager to control the actual max actions executed per trajectory

@@ -184,17 +184,4 @@ python train.py trainer.experiment_name=sokoban-bi-level-gae-final \
     algorithm.bi_level_gae=True algorithm.high_level_gamma=0.95 \
     agent_proxy.use_turn_scores=True \
     actor_rollout_ref.rollout.tp_size_check=False
-
-# extension: webshop
-# StarPO ppo
-MKL_SERVICE_FORCE_INTEL=1 python train.py --config-name webshop_3b_train system.CUDA_VISIBLE_DEVICES=\"4,5\" trainer.n_gpus_per_node=2 \
-    trainer.experiment_name=webshop-3b-ppo $USE_PPO $USE_BASE \
-    es_manager.train.env_groups=2 es_manager.train.group_size=16 es_manager.train.env_configs.n_groups=[2] \
-    trainer.nnodes=1
-
-# StarPO grpo
-MKL_SERVICE_FORCE_INTEL=1 python train.py --config-name webshop_3b_train system.CUDA_VISIBLE_DEVICES=\"6,7\" trainer.n_gpus_per_node=2 \
-    trainer.experiment_name=webshop-3b-grpo $USE_GRPO $USE_BASE \
-    es_manager.train.env_groups=2 es_manager.train.group_size=16 es_manager.train.env_configs.n_groups=[2] \
-    trainer.nnodes=1
     

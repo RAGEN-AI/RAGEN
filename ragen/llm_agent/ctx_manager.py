@@ -302,19 +302,10 @@ class ContextManager:
                     if key not in metrics:
                         metrics[key] = []
                     metrics[key].append(value)
-            mean_metrics = {
+            metrics = {
                 key: np.sum(value) / self.env_nums[key.split("/")[0]]
                 for key, value in metrics.items()
             }
-            for key, values in metrics.items():
-                if not isinstance(values, list):
-                    continue
-                prefix, suffix = key.split("/", 1)
-                non_zero_values = [v for v in values if v != 0]
-                if non_zero_values:  # Avoid division by zero
-                    non_zero_key = f"{prefix}/non-zero/{suffix}"
-                    mean_metrics[non_zero_key] = np.mean(non_zero_values)
-            metrics = mean_metrics
             metrics["response_length"] = response_length
             llm_inputs.meta_info = {"metrics": metrics}
         return llm_inputs

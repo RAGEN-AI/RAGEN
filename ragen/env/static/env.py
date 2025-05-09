@@ -34,7 +34,7 @@ class StaticEnv(BaseLanguageBasedEnv):
         self.processor = REGISTERD_STATIC_ENV[self.config.dataset_name]["processor"]
         self.compute_score= REGISTERD_STATIC_ENV[self.config.dataset_name]["compute_score"]
         
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         """Reset the environment and get a new question."""
         dataset_split = self.dataset[self.split]
         with all_seed(seed):

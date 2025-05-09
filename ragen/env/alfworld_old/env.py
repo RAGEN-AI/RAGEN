@@ -34,7 +34,7 @@ class AlfredTXTEnv(BaseLanguageBasedEnv):
         self.render_mode = self.config.render_mode
         assert self.render_mode == 'text'
     
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         """
         Reset the environment with a specific seed.
         If seed is provided, it deterministically selects a specific game file.

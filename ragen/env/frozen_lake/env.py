@@ -25,7 +25,7 @@ class FrozenLakeEnv(BaseDiscreteActionEnv, GymFrozenLakeEnv):
             render_mode=config.render_mode
         )
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         try:
             with all_seed(seed):
                 self.config.map_seed = seed

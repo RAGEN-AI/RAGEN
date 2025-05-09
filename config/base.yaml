@@ -9,19 +9,20 @@ system:
 micro_batch_size_per_gpu: 4
 ppo_mini_batch_size: 32
 model_path: Qwen/Qwen2.5-0.5B-Instruct
-enable_response_mask: False
+enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
 grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
 
 lora:
-  enabled: False
-  rank: 64
-  alpha: 64
+  rank: 0
+  alpha: 16
   target_modules: all-linear
-  local_temp_dir: lora_temp
 
 actor_rollout_ref:
   model:
     path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
   actor:
     ppo_mini_batch_size: ${ppo_mini_batch_size}  # by default, ppo_mini_batch_size = train_batch_size / 4
     micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
@@ -36,12 +37,6 @@ actor_rollout_ref:
     grpo_advantage_length_weight: ${grpo_advantage_length_weight}
     optim:
       betas: [0.9, 0.999]
-    lora:
-      enabled: ${lora.enabled}
-      rank: ${lora.rank}
-      alpha: ${lora.alpha}
-      target_modules: ${lora.target_modules}
-      local_temp_dir: ${lora.local_temp_dir}
   ref:
     log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
   rollout:
@@ -55,30 +50,23 @@ actor_rollout_ref:
     temperature: 1
     rollout_filter_ratio: 0.25
     rollout_filter_type: std # max_mean or std
-    enforce_eager: False #  for small models, set both enforce_eager and free_cache_engine to False to make rollout faster
-    free_cache_engine: False
+    enforce_eager: True #  for small models, set both enforce_eager and free_cache_engine to False to make rollout faster
+    free_cache_engine: True
     val_kwargs:
       do_sample: True
       temperature: 0.5
-    lora:
-      enabled: ${lora.enabled}
-      rank: ${lora.rank}
-      alpha: ${lora.alpha}
-      target_modules: ${lora.target_modules}
-      local_temp_dir: ${lora.local_temp_dir}
+    tp_size_check: true
 
 critic:
   ppo_mini_batch_size: ${ppo_mini_batch_size} # by default, ppo_mini_batch_size = train_batch_size / 4
   ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
   model:
     path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
   optim:
     betas: [0.9, 0.999]
-  lora:
-    enabled: ${lora.enabled}
-    rank: ${lora.rank}
-    alpha: ${lora.alpha}
-    target_modules: ${lora.target_modules}
 
 data:
   max_prompt_length: null
@@ -88,7 +76,9 @@ data:
 algorithm:
   gamma: 1.0
   lam: 1.0
+  high_level_gamma: 0.95
   adv_estimator: gae
+  bi_level_gae: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
     type: fixed

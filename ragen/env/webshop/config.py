@@ -8,6 +8,10 @@ from webshop_minimal.utils import (
 @dataclass
 class WebShopEnvConfig:
     """Configuration for WebAgentText environment"""
+    dataset: str = field(
+        default="small",
+        metadata={"description": "Small or full dataset"}
+    )
     observation_mode: str = field(
         default="text", 
         metadata={"choices": ["html", "text"]}

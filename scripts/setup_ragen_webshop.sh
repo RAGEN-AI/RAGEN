@@ -124,6 +124,15 @@ main() {
     print_step "Downloading data..."
     python scripts/download_data.py
 
+    # Optional: download full data set
+    print_step "Downloading full data set..."
+    conda install conda-forge::gdown
+    mkdir -p external/webshop-minimal/webshop_minimal/data/full
+    cd external/webshop-minimal/webshop_minimal/data/full
+    gdown https://drive.google.com/uc?id=1A2whVgOO0euk5O13n2iYDM0bQRkkRduB # items_shuffle
+    gdown https://drive.google.com/uc?id=1s2j6NgHljiZzQNL3veZaAiyW_qDEgBNi # items_ins_v2
+    cd ../../../../..
+
     echo -e "${GREEN}Installation completed successfully!${NC}"
     echo "To activate the environment, run: conda activate ragen"
     

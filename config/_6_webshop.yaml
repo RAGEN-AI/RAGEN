@@ -2,48 +2,26 @@ defaults:
   - base
 
 micro_batch_size_per_gpu: 1
-ppo_mini_batch_size: 1
+ppo_mini_batch_size: 32
+model_path: Qwen/Qwen2.5-3B-Instruct
+
+trainer:
+  experiment_name: webshop
+
+
+agent_proxy:
+  max_turn: 9
+  max_actions_per_turn: 1
 
 actor_rollout_ref:
-  model:
-    path: Qwen/Qwen2.5-0.5B-Instruct
-  actor:
-    ppo_mini_batch_size: null  # by default, ppo_mini_batch_size = train_batch_size / 4
-    micro_batch_size_per_gpu: null # following micro_batch_size_per_gpu
-    ppo_micro_batch_size_per_gpu: null # following micro_batch_size_per_gpu
-    use_kl_loss: True
-    use_ref: True
-    kl_loss_coef: 0.000
-    kl_loss_type: low_var_kl
-    optim:
-      betas: [0.9, 0.999]
-  ref:
-    log_prob_micro_batch_size_per_gpu: null # following micro_batch_size_per_gpu
   rollout:
-    log_prob_micro_batch_size_per_gpu: null # following micro_batch_size_per_gpu
-    tensor_model_parallel_size: 1
-    max_model_len: 8192
-    prompt_length: 1 # useless. Just put it here
-    response_length: 400 # single-turn response length
-    gpu_memory_utilization: 0.5
-    # max_num_batched_tokens: 8192 # set only when enable_chunked_prefill is true
-    temperature: 1
-    val_kwargs:
-      do_sample: True
-      temperature: 0.5
+    max_model_len: 15000
+    max_num_batched_tokens: 15000
 
 es_manager:
-  format_penalty: -0.1
   train:
-    env_groups: 1
-    # under the same group, the env config and env seed are ensured to be equal
-    group_size: 1
     env_configs:
       tags: ["WebShop"]
-      n_groups: [1] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
   val:
-    env_groups: 1
-    group_size: 1 # should be set to 1 because val temperature is set to 0 and same prompt leads to same output
     env_configs:
       tags: ["WebShop"]
-      n_groups: [1] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation

@@ -172,3 +172,29 @@ python train.py --config-name _2_sokoban system.CUDA_VISIBLE_DEVICES=\"0,1\" tra
 # grpo_advantage_length_weight: True
 
 python train.py --config-name _2_sokoban system.CUDA_VISIBLE_DEVICES=\"0,1\" trainer.n_gpus_per_node=2 trainer.experiment_name=sokoban-s-grpo-1-5b algorithm.adv_estimator=grpo agent_proxy.reward_normalization.method=mean_std agent_proxy.max_actions_per_turn=5 custom_envs.SimpleSokoban.max_actions_per_traj=25 enable_response_mask=True grpo_advantage_length_weight=False model_path=Qwen/Qwen2.5-1.5B-Instruct &
+
+
+# extension: 7B with lora. Currently NOT recommended to use lora: within current version of vllm, this could result in rollouts slower than non-lora by 100%
+python train.py --config-name _2_sokoban system.CUDA_VISIBLE_DEVICES=\"0,1,2,3\" trainer.n_gpus_per_node=4 model_path=Qwen/Qwen2.5-7B-Instruct trainer.experiment_name=sokoban_7b_instruct_lora_newversion lora.rank=16  
+
+# extension: bi-level gae
+python train.py trainer.experiment_name=sokoban-bi-level-gae-final \
+    system.CUDA_VISIBLE_DEVICES=\"0,1,2,3\" trainer.n_gpus_per_node=4 actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    model_path=Qwen/Qwen2.5-0.5B-Instruct \
+    algorithm.bi_level_gae=True algorithm.high_level_gamma=0.95 \
+    agent_proxy.use_turn_scores=True \
+    actor_rollout_ref.rollout.tp_size_check=False
+
+# extension: webshop
+# StarPO ppo
+MKL_SERVICE_FORCE_INTEL=1 python train.py --config-name webshop_3b_train system.CUDA_VISIBLE_DEVICES=\"4,5\" trainer.n_gpus_per_node=2 \
+    trainer.experiment_name=webshop-3b-ppo $USE_PPO $USE_BASE \
+    es_manager.train.env_groups=2 es_manager.train.group_size=16 es_manager.train.env_configs.n_groups=[2] \
+    trainer.nnodes=1
+
+# StarPO grpo
+MKL_SERVICE_FORCE_INTEL=1 python train.py --config-name webshop_3b_train system.CUDA_VISIBLE_DEVICES=\"6,7\" trainer.n_gpus_per_node=2 \
+    trainer.experiment_name=webshop-3b-grpo $USE_GRPO $USE_BASE \
+    es_manager.train.env_groups=2 es_manager.train.group_size=16 es_manager.train.env_configs.n_groups=[2] \
+    trainer.nnodes=1
+    

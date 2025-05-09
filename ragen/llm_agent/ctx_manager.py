@@ -3,6 +3,8 @@ This is the context manager for the LLM agent.
 author: Kangrui Wang, Zihan Wang
 date: 2025-03-30
 """
+from itertools import zip_longest
+
 import torch
 import numpy as np
 from typing import List, Dict, Any, Optional, Union
@@ -19,35 +21,54 @@ from tensordict import TensorDict
 from dataclasses import asdict
 register_resolvers()
 
-def get_masks_and_scores(input_ids: torch.Tensor, tokenizer: AutoTokenizer, all_scores: List[List[float]] = None, use_turn_scores: bool = False):
+def get_special_tokens(tokenizer: AutoTokenizer):
+    if "qwen" in tokenizer.name_or_path.lower():
+        special_token = tokenizer.encode("<|im_start|>")[0]
+        reward_token = tokenizer.encode("<|im_end|>")[0]
+    elif "llama-3" in tokenizer.name_or_path.lower():
+        special_token = 128006
+        reward_token = 128009
+    else:
+        raise ValueError(f"Unsupported model: {tokenizer.name_or_path}")
+    return special_token, reward_token
+
+def get_masks_and_scores(input_ids: torch.Tensor, tokenizer: AutoTokenizer, all_scores: List[List[float]] = None, use_turn_scores: bool = False, enable_response_mask: bool = False):
     """
     input_ids: shape (bsz, seq_len)
     Get loss mask that only learns between <|im_start|>assistant and <|im_end|>. Currently only supports qwen.
     NOTE: important! This assumes that the input_ids starts with system and then user & assistant in alternative ways
     """
-    special_token = tokenizer.encode("<|im_start|>")[0]
+    special_token, reward_token = get_special_tokens(tokenizer)
+    
     turn_starts = torch.where(input_ids == special_token, 1, 0)
     turn_indicators = torch.cumsum(turn_starts, dim=-1)
-    response_mask = (turn_indicators % 2 == 1) & (turn_indicators > 1) # only learns all assistant turns
-    loss_mask = (turn_indicators > 1) # learns everything after system prompt
-    # loss_mask = response_mask
-
-    reward_token = tokenizer.encode("<|im_end|>")[0]
+    if enable_response_mask:
+        loss_mask = (turn_indicators % 2 == 1) & (turn_indicators > 1) # only learns all assistant turns
+    else:
+        loss_mask = (turn_indicators > 1) # learns everything after system prompt
+    response_mask = (turn_indicators % 2 == 1) & (turn_indicators > 1)
+    
     score_tensor = torch.zeros_like(input_ids, dtype=torch.float32)
     if use_turn_scores:
-        for idx, scores in enumerate(list(zip(*all_scores))):
+        for idx, scores in enumerate(zip_longest(*all_scores, fillvalue=0)):
             scores = torch.tensor(scores, dtype=torch.float32)
             turn_indicator = idx * 2 + 3 # 0: pad. 1: system. 2+2n: user. 3+2n: assistant
             reward_position = (input_ids == reward_token) & (turn_indicators == turn_indicator)
+            # Set the last token of the rows where all positions are False to True
+            reward_position[~reward_position.any(dim=-1), -1] = True
             score_tensor[reward_position] = scores
+        if "qwen" in tokenizer.name_or_path.lower():
+            # for Qwen, there is a "\n" between special token and reward token, so we shift this to make sure reward is assigned to the last token of a turn
+            score_tensor = score_tensor.roll(shifts=1, dims=-1)
     else:
         scores = [sum(i) for i in all_scores]
         score_tensor[:, -1] = torch.tensor(scores, dtype=torch.float32)
-    loss_mask = loss_mask[:, :-1] # remove the last token
-    score_tensor = score_tensor[:, 1:] # remove the first token
-    response_mask = response_mask[:, :-1]
 
-    return loss_mask, score_tensor, response_mask
+    score_tensor = score_tensor[:, 1:] # remove the first token
+    loss_mask = loss_mask[:, :-1] # remove the last token
+    response_mask = response_mask[:, :-1] # remove the last token
+
+    return score_tensor, loss_mask, response_mask
 
 
 
@@ -188,7 +209,7 @@ class ContextManager:
         # apply penalty pre-normalization
         acc_scores = score_tensor[:, -1]
         normalized_acc_scores = acc_scores.clone()
-        penalty = torch.tensor([env_output["penalty"] for env_output in env_outputs], dtype=torch.float32)
+        penalty = torch.tensor([env_output.get("penalty", 0) for env_output in env_outputs], dtype=torch.float32)
         normalized_acc_scores = normalized_acc_scores + penalty
 
         if len(group2index) < acc_scores.shape[0]: # the group size > 1
@@ -249,10 +270,11 @@ class ContextManager:
         position_ids = attention_mask.cumsum(dim=-1)
         if prepare_for_update:
             scores = [[i['reward'] for i in env_output['history']] for env_output in env_outputs]
-            loss_mask, score_tensor, response_mask = get_masks_and_scores(input_ids, self.tokenizer, scores, use_turn_scores=self.config.agent_proxy.use_turn_scores)
-            if self.config.enable_response_mask:
-                loss_mask = response_mask
-            normalized_score_tensor = self._normalize_score_tensor(score_tensor, env_outputs)
+            score_tensor, loss_mask, response_mask = get_masks_and_scores(input_ids, self.tokenizer, scores, use_turn_scores=self.config.agent_proxy.use_turn_scores, enable_response_mask=self.config.enable_response_mask)
+
+            normalized_score_tensor = score_tensor
+            if not self.config.agent_proxy.use_turn_scores:
+                normalized_score_tensor = self._normalize_score_tensor(score_tensor, env_outputs)
             response_length = response_mask.sum(dim=-1).float().mean().item()
 
         llm_inputs = DataProto()
@@ -280,10 +302,19 @@ class ContextManager:
                     if key not in metrics:
                         metrics[key] = []
                     metrics[key].append(value)
-            metrics = {
+            mean_metrics = {
                 key: np.sum(value) / self.env_nums[key.split("/")[0]]
                 for key, value in metrics.items()
             }
+            for key, values in metrics.items():
+                if not isinstance(values, list):
+                    continue
+                prefix, suffix = key.split("/", 1)
+                non_zero_values = [v for v in values if v != 0]
+                if non_zero_values:  # Avoid division by zero
+                    non_zero_key = f"{prefix}/non-zero/{suffix}"
+                    mean_metrics[non_zero_key] = np.mean(non_zero_values)
+            metrics = mean_metrics
             metrics["response_length"] = response_length
             llm_inputs.meta_info = {"metrics": metrics}
         return llm_inputs
@@ -324,26 +355,26 @@ def main(config):
     tokenizer = AutoTokenizer.from_pretrained(config.actor_rollout_ref.model.path)
     ctx_manager = ContextManager(config=config, tokenizer=tokenizer)
     print("ctx_manager prefix", ctx_manager.prefix_lookup)
-    batch_list = [
-        {
-            "env_id": 0,
-            "chat_response": "<think><think></answer> 123. </think><answer> <answer> say | hi </answer></answer>",
-        },
-        {
-            "env_id": 1,
-            "chat_response": "<think> 456. </think><answer> love ; you </answer><think> mlll nb </think><answer> lxxx ; you </answer>",
-        }
-    ]
-    ctx_manager.action_sep_lookup = {
-        0: "|",
-        1: ";"
-    }
-    for item in batch_list:
-        item["responses"] = tokenizer.encode(item["chat_response"], return_tensors="pt",max_length=512, truncation=True,padding="max_length")[0]
-    batch_dict = collate_fn(batch_list)
-    batch = DataProto.from_single_dict(batch_dict)
-    env_inputs = ctx_manager.get_env_inputs(batch)
-    print(env_inputs)
+    # batch_list = [
+    #     {
+    #         "env_ids": 0,
+    #         "chat_response": "<think><think></answer> 123. </think><answer> <answer> say | hi </answer></answer>",
+    #     },
+    #     {
+    #         "env_ids": 1,
+    #         "chat_response": "<think> 456. </think><answer> 789 </answer><think> 10123 </think><answer> 11111 </answer>",
+    #     }
+    # ]
+    # ctx_manager.action_sep_lookup = {
+    #     0: "|",
+    #     1: ";"
+    # }
+    # for item in batch_list:
+    #     item["responses"] = tokenizer.encode(item["chat_response"], return_tensors="pt",max_length=512, truncation=True,padding="max_length")[0]
+    # batch_dict = collate_fn(batch_list)
+    # batch = DataProto.from_single_dict(batch_dict)
+    # env_inputs = ctx_manager.get_env_inputs(batch)
+    # print(env_inputs)
     
 
 
@@ -351,19 +382,21 @@ def main(config):
         {
             "env_id": 1,
             "history": [
-                {"state": "###\n#x_#<image>", "llm_response": "Response 1", "reward": 0.5},
-                {"state": "###\n#x_#<image>", "llm_response": "Response 2", "reward": 0.8},
-                {"state": "###\n#x_#<image>"}
+                {"state": "###\n#x_#<image>", "llm_response": "Response 1", "reward": 0.5, "actions_left": 2},
+                {"state": "###\n#x_#<image>", "llm_response": "Response 2", "reward": 0.8, "actions_left": 1},
+                {"state": "###\n#x_#<image>", "actions_left": 0}
             ],
-            "group_id": 0
+            "group_id": 0,
+            "metrics": {}
         },
         {
             "env_id": 2,
             "history": [
-                {"state": "###\n#x_#<image>", "llm_response": "Response 3", "reward": 0.3},
-                {"state": "###\n#x_#<image>"}
+                {"state": "###\n#x_#<image>", "llm_response": "Response 3", "reward": 0.3, "actions_left": 1},
+                {"state": "###\n#x_#<image>", "actions_left": 0}
             ],
-            "group_id": 1
+            "group_id": 1,
+            "metrics": {}
         }
     ]
     

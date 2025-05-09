@@ -91,7 +91,7 @@ class EnvStateManager:
             seed = 123
         seeds = _expand_seed(seed)
         for seed, entry in zip(seeds, envs):
-            entry['env'].reset(seed=seed)
+            entry['env'].reset(seed=seed, mode=self.mode)
             entry['status'] = EnvStatus(seed=seed)
 
         # update rollout cache
@@ -173,6 +173,7 @@ class EnvStateManager:
         """Get the final output for all environment"""
         envs = self.envs
         rollout_cache = self.rollout_cache
+        TURN_LVL_METRICS = ['action_is_effective', 'action_is_valid', 'end_of_page']
 
         # add metrics to rollout cache
         for entry, cache in zip(envs, rollout_cache):
@@ -190,11 +191,18 @@ class EnvStateManager:
                         custom_metric[k] = []
                     custom_metric[k].append(float(v))
             for k, v in custom_metric.items():
-                env_metric[k] = np.sum(v) / (len(cache['history']) - 1) # NOTE: exclude the last observation
+                # TODO: Generalize this for all envs
+                if "Webshop" in k and k in TURN_LVL_METRICS:
+                    env_metric[k] = np.sum(v) / (len(cache['history']) - 1) # NOTE: exclude the last observation
+                else:
+                    env_metric[k] = np.sum(v)
+
 
             cache['history'][-1]['metrics'] = custom_metric
             env_metric = {f"{entry['tag']}/{k}": v for k, v in env_metric.items()}
             cache['metrics'] = env_metric
+            if entry['tag'] == "MetamathQA":
+                cache['correct_answer'] = entry['env'].correct_answer
         return rollout_cache
 
 

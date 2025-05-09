@@ -27,7 +27,7 @@ class MetaMathQAEnv(BaseLanguageBasedEnv):
             return match.group(1).strip()
         return None
         
-    def reset(self,seed=None):
+    def reset(self,seed=None, mode=None):
         dataset = self.dataset[self.config.split]
         with all_seed(seed):
             self.current_question_idx = random.randint(0, len(dataset) - 1)

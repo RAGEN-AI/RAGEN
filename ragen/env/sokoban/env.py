@@ -25,7 +25,7 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             **kwargs
         )
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         try:
             with all_seed(seed):
                 self.room_fixed, self.room_state, self.box_mapping, action_sequence = generate_room(

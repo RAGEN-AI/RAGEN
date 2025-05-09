@@ -48,7 +48,7 @@ class CountdownEnv(BaseLanguageBasedEnv, gym.Env):
         df = df.filter(lambda x: has_solution(x['nums'], x['target']))
         return df
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         gym.Env.reset(self, seed=seed)
         self.index = seed % len(self.data)
         data = self.data[self.index]

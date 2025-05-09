@@ -24,12 +24,17 @@ class DummyRewardManager():
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict=False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
-            return data.batch['rm_scores']
+            if return_dict:
+                return {
+                    "reward_tensor": data.batch['rm_scores'],
+                }
+            else:
+                return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
@@ -78,7 +83,12 @@ class DummyRewardManager():
         print(f"[DEBUG] all_scores min: {np.min(all_scores)}")
         print(f"[DEBUG] all_scores std: {np.std(all_scores)}")
 
-        return reward_tensor
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+            }
+        else:
+            return reward_tensor
 
 def get_custom_reward_fn(config):
     import importlib.util, os
@@ -114,31 +124,35 @@ def get_custom_reward_fn(config):
 
 
 
-def add_dependency(config):
+def add_dependency_and_validate_config(config):
+
+    # validate config
+    assert config.micro_batch_size_per_gpu * config.trainer.n_gpus_per_node <= config.actor_rollout_ref.actor.ppo_mini_batch_size, \
+        f"micro_batch_size_per_gpu * n_gpus_per_node ({config.micro_batch_size_per_gpu * config.trainer.n_gpus_per_node}) must be less than or equal to ppo_mini_batch_size ({config.actor_rollout_ref.actor.ppo_mini_batch_size})"
+    assert config.actor_rollout_ref.actor.ppo_mini_batch_size % (config.micro_batch_size_per_gpu * config.trainer.n_gpus_per_node) == 0, \
+        f"ppo_mini_batch_size ({config.actor_rollout_ref.actor.ppo_mini_batch_size}) must be divisible by micro_batch_size_per_gpu * n_gpus_per_node ({config.micro_batch_size_per_gpu * config.trainer.n_gpus_per_node})"
+    assert "qwen" in config.model_path.lower() or (not config.enable_response_mask), \
+        "response mask is currently only supported for qwen models"
+    assert len(str(config.system.CUDA_VISIBLE_DEVICES).split(',')) == config.trainer.n_gpus_per_node, \
+        f"CUDA_VISIBLE_DEVICES ({config.system.CUDA_VISIBLE_DEVICES}) must have the same number of GPUs as n_gpus_per_node ({config.trainer.n_gpus_per_node})"
+    assert (config.actor_rollout_ref.rollout.tensor_model_parallel_size == config.trainer.n_gpus_per_node) or (not config.actor_rollout_ref.rollout.tp_size_check), \
+        f"actor_rollout_ref.rollout.tensor_model_parallel_size ({config.actor_rollout_ref.rollout.tensor_model_parallel_size}) is recommended to be the same as n_gpus_per_node ({config.trainer.n_gpus_per_node}) to maximize rollout speed. You can set actor_rollout_ref.rollout.tp_size_check=False to disable this check."
+    assert config.es_manager.train.env_groups * config.es_manager.train.group_size * config.actor_rollout_ref.rollout.rollout_filter_ratio >= config.ppo_mini_batch_size, \
+        f"env_groups * group_size * rollout_filter_ratio ({config.es_manager.train.env_groups * config.es_manager.train.group_size * config.actor_rollout_ref.rollout.rollout_filter_ratio}) must be greater than or equal to ppo_mini_batch_size ({config.ppo_mini_batch_size}). Note that effective rollouts for update is env_groups * group_size * rollout_filter_ratio."
+    assert config.algorithm.bi_level_gae == False or config.algorithm.adv_estimator == "gae", "BI_LEVEL_GAE is enabled, so config.algorithm.adv_estimator should be set to gae"
+    assert config.algorithm.bi_level_gae == False or (not config.agent_proxy.use_turn_scores), "BI_LEVEL_GAE is enabled, but currently use_turn_scores are not correctly supported, so config.agent_proxy.use_turn_scores should be set to False" # This will be added later. Currently turn-scores are not correctly supported yet.
+    # assert config.algorithm.bi_level_gae == False or config.agent_proxy.use_turn_scores, "BI_LEVEL_GAE is enabled, so config.agent_proxy.use_turn_scores should be set to True" # This will be added later. Currently turn-scores are not correctly supported yet.
+
+    # add dependency
     config.data.train_batch_size = config.es_manager.train.env_groups * config.es_manager.train.group_size
-    if config.ppo_mini_batch_size is None:
-        config.ppo_mini_batch_size = config.data.train_batch_size // 4
-        print(f"config.ppo_mini_batch_size: {config.ppo_mini_batch_size}")
 
-    config.actor_rollout_ref.actor.ppo_mini_batch_size = config.ppo_mini_batch_size
-    config.critic.ppo_mini_batch_size = config.ppo_mini_batch_size
-
-    if config.micro_batch_size_per_gpu is None:
-        config.micro_batch_size_per_gpu = config.actor_rollout_ref.actor.ppo_mini_batch_size // config.trainer.n_gpus_per_node
-        print(f"config.micro_batch_size_per_gpu: {config.micro_batch_size_per_gpu}")
-        
-    config.actor_rollout_ref.actor.micro_batch_size_per_gpu = config.micro_batch_size_per_gpu
-    config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu = config.micro_batch_size_per_gpu
-    config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu = config.micro_batch_size_per_gpu
-    config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu = config.micro_batch_size_per_gpu
-    config.critic.ppo_micro_batch_size_per_gpu = config.micro_batch_size_per_gpu
 
     return config
 
 
 @hydra.main(version_base=None, config_path="config", config_name="base")
 def main(config):
-    config = add_dependency(config)
+    config = add_dependency_and_validate_config(config)
     print(f"config: {config}")
 
     run_ppo(config)

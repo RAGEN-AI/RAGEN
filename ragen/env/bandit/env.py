@@ -49,7 +49,7 @@ class BanditEnv(BaseDiscreteActionEnv, gym.Env):
     def render(self):
         return self.render_cache
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, mode=None):
         gym.Env.reset(self, seed=seed)
         self._randomize_arms()
         pos1 = self.config.action_space_start

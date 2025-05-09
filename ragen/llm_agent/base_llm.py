@@ -51,6 +51,34 @@ class OpenAIProvider(LLMProvider):
             model_name=response.model
         )
 
+class DeepSeekProvider(LLMProvider):
+    """DeepSeek API provider implementation"""
+    
+    def __init__(self, model_name: str = "deepseek-reasoner", api_key: Optional[str] = None):
+        self.model_name = model_name
+        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        if not self.api_key:
+            raise ValueError("DeepSeek API key not provided and not found in environment variables")
+        
+        self.client = AsyncOpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+    
+    async def generate(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        if "o1-mini" in self.model_name:
+            if messages[0]["role"] == "system":
+                messages = messages[1:]
+            
+        response = await self.client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            **kwargs
+        )
+        if response.choices[0].finish_reason in ['length', 'content_filter']:
+            raise ValueError("Content filtered or length exceeded")
+        return LLMResponse(
+            content=response.choices[0].message.content,
+            model_name=response.model
+        )
+
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider implementation
     Refer to https://github.com/anthropics/anthropic-sdk-python
@@ -133,6 +161,8 @@ class ConcurrentLLM:
         else:
             if provider.lower() == "openai":
                 self.provider = OpenAIProvider(model_name or "gpt-4o", api_key)
+            elif provider.lower() == "deepseek":
+                self.provider = DeepSeekProvider(model_name or "deepseek-reasoner", api_key)
             elif provider.lower() == "anthropic":
                 self.provider = AnthropicProvider(model_name or "claude-3-7-sonnet-20250219", api_key)
             elif provider.lower() == "together":

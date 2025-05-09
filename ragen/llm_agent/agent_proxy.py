@@ -1,4 +1,3 @@
-
 from .ctx_manager import ContextManager
 from .es_manager import EnvStateManager
 from vllm import LLM, SamplingParams
@@ -11,6 +10,7 @@ from typing import List, Dict
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from .base_llm import ConcurrentLLM
 import time
+
 
 class VllmWrapperWg: # Thi is a developing class for eval and test
 	def __init__(self, config, tokenizer):
@@ -33,6 +33,7 @@ class VllmWrapperWg: # Thi is a developing class for eval and test
             max_num_batched_tokens=ro_config.max_num_batched_tokens,
             enable_chunked_prefill=ro_config.enable_chunked_prefill,
             enable_prefix_caching=True,
+			trust_remote_code=True,
 		)
 		print("LLM initialized")
 		self.sampling_params = SamplingParams(
@@ -166,18 +167,19 @@ def main(config):
 	actor_wg = VllmWrapperWg(config, tokenizer)
 	proxy = LLMAgentProxy(config, actor_wg, tokenizer)
 	import time
-	start_time = time.time()
-	rollouts = proxy.rollout(DataProto(batch=None, non_tensor_batch=None, meta_info={'eos_token_id': 151645, 'pad_token_id': 151643, 'recompute_log_prob': False, 'do_sample':config.actor_rollout_ref.rollout.do_sample, 'validate': True}), val=True)
-	end_time = time.time()
-	print(f'rollout time: {end_time - start_time} seconds')
-	# print rollout rewards from the rm_scores
-	rm_scores = rollouts.batch["rm_scores"]
-	metrics = rollouts.meta_info["metrics"]
-	avg_reward = rm_scores.sum(-1).mean().item()
-	print(f'rollout rewards: {avg_reward}')
-	print(f'metrics:')
-	for k, v in metrics.items():
-		print(f'{k}: {v}')
+	for _ in range(10):
+		start_time = time.time()
+		rollouts = proxy.rollout(DataProto(batch=None, non_tensor_batch=None, meta_info={'eos_token_id': 151645, 'pad_token_id': 151643, 'recompute_log_prob': False, 'do_sample':config.actor_rollout_ref.rollout.do_sample, 'validate': True}), val=True)
+		end_time = time.time()
+		print(f'rollout time: {end_time - start_time} seconds')
+		# print rollout rewards from the rm_scores
+		rm_scores = rollouts.batch["rm_scores"]
+		metrics = rollouts.meta_info["metrics"]
+		avg_reward = rm_scores.sum(-1).mean().item()
+		print(f'rollout rewards: {avg_reward}')
+		print(f'metrics:')
+		for k, v in metrics.items():
+			print(f'{k}: {v}')
 
 # @hydra.main(version_base=None, config_path="../../config", config_name="evaluate_api_llm")
 # def main(config):

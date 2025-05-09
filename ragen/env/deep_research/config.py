@@ -4,7 +4,7 @@ from ragen.env.base import BaseEnvConfig
 
 
 @dataclass
-class CriticSearchEnvConfig(BaseEnvConfig):
+class DeepResearchEnvConfig(BaseEnvConfig):
     """
     环境超参（可在 config/envs.yaml 覆写）
     """

@@ -4,6 +4,8 @@ custom_envs:
     max_actions_per_traj: 40
     env_instruction: "Follow user command, call search, draft sections"
     max_tokens: 8192
+    env_config: # keys should be a subset of DeepResearchConfig
+      max_steps: 100
 
   SimpleSokoban:
     env_type: sokoban

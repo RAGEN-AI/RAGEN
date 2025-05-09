@@ -1,9 +1,10 @@
 defaults:
   - ppo_trainer # this is a symbolic link to the verl/verl/trainer/config/ppo_trainer.yaml file
+  - _self_  
   - envs
 
 system:
-  CUDA_VISIBLE_DEVICES: "0"
+  CUDA_VISIBLE_DEVICES: "0,1,2,3" # set the GPU ids to be used
 
 micro_batch_size_per_gpu: 4
 ppo_mini_batch_size: 32
@@ -46,11 +47,11 @@ actor_rollout_ref:
   rollout:
     log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
     tensor_model_parallel_size: 1
-    max_model_len: 3600
+    max_model_len: 2048
     prompt_length: 1 # useless. Just put it here
     response_length: 400 # single-turn response length
-    gpu_memory_utilization: 0.5
-    max_num_batched_tokens: 8192 # set only when enable_chunked_prefill is true
+    gpu_memory_utilization: 0.9
+    max_num_batched_tokens: 2048 # set only when enable_chunked_prefill is true
     temperature: 1
     rollout_filter_ratio: 0.25
     rollout_filter_type: std # max_mean or std
@@ -117,20 +118,19 @@ agent_proxy:
     method: "identity" # asym_clip / identity / mean_std
 
 es_manager:
-  environments: ["DeepResearch"]
   format_penalty: -0.1
   train:
     env_groups: 8
     # under the same group, the env config and env seed are ensured to be equal
     group_size: 16
     env_configs:
-      tags: ["SimpleSokoban"]
+      tags: ["DeepResearch"]
       n_groups: [8] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
   val:
     env_groups: 256
     group_size: 1 # should be set to 1 because when val temperature is set to 0 and group size > 1, there will be repetitive prompts which leads to same trajectory.
     env_configs:
-      tags: ["SimpleSokoban"]
+      tags: ["DeepResearch"]
       n_groups: [256] # TODO: If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
 
 ctx_manager:

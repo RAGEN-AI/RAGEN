@@ -7,7 +7,7 @@ from typing import Dict, Any, Tuple
 
 from jinja2 import Template
 from ragen.env.base import BaseLanguageBasedEnv
-from ragen.env.deep_research.config import CriticSearchEnvConfig
+from ragen.env.deep_research.config import DeepResearchEnvConfig
 
 from criticsearch.base_agent import BaseAgent
 from criticsearch.tools.tool_registry import ToolRegistry
@@ -19,9 +19,10 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
     metadata = {"render.modes": ["human"]}
 
     # ---------- init ----------
-    def __init__(self, config: CriticSearchEnvConfig | None = None):
+    def __init__(self, config: DeepResearchEnvConfig | None = None):
         super().__init__()
-        self.cfg = config or CriticSearchEnvConfig()
+        self.cfg = config or DeepResearchEnvConfig()
+        self.config = self.cfg
         self.agent: BaseAgent | None = None
         self.registry: ToolRegistry | None = None
         self.history: list[Dict[str, str]] = []
@@ -30,6 +31,9 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
 
     # ---------- reset ----------
     def reset(self, seed=None, **kw) -> str:
+        """
+        环境的 initial observation. 模型在每条轨迹（episode）开始时看到的内容
+        """
         self.agent = BaseAgent()
         self.registry = self.agent.tool_registry
         self._step_count = 0
@@ -74,8 +78,12 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
 
         tool_xml = extract_tag_content(action, "tool_use")
         if not tool_xml:
+            # # 获取answer tag内的模型最终回答
+            # answer_content = extract_tag_content(action, "answer")
+            # # 交给公正模型比如gpt4o用模型的answer内容进行reportbench的考试
+
             # 最终回答
-            obs, reward, done = action, 1.0, True
+            obs, reward, done = action, 1.0, True # TODO: 这里的 reward 需要根据实际情况计算,调用report bench
         else:
             # -------- 解析工具调用 --------
             tool_name = extract_tag_content(tool_xml, "name")
@@ -115,9 +123,17 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
         return obs_str[: self.cfg.max_tokens], reward, done, {}
 
     # ---------- render ----------
-    def render(self, mode="human"):
+    def render(self, mode="human") -> str:
+        """
+        打印并返回轨迹（action, reward）信息的文本表示。
+        mode="human" 时会在控制台打印，其他模式只返回字符串。
+        """
+        # 构建渲染输出行
+        lines = [
+            f"{i:02d} | r={step['r']} | {step['a']}"
+            for i, step in enumerate(self._traj, start=1)
+        ]
+        output = "\n".join(lines)
         if mode == "human":
-            for i, t in enumerate(self._traj, 1):
-                print(f"{i:02d}| r={t['r']} | {t['a']}")
-        else:
-            super().render(mode)
+            print(output)
+        return output

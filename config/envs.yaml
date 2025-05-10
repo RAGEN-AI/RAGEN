@@ -2,7 +2,7 @@ custom_envs:
   DeepResearch:
     env_type: deep_research          # ⇐ 注意要配对文件夹名字
     max_actions_per_traj: 50
-    env_instruction: ""
+    # env_instruction: "Tell me what's your name"
     max_tokens: 8192
     env_config: # keys should be a subset of DeepResearchConfig
       max_steps: 100

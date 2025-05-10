@@ -7,7 +7,7 @@ system:
   CUDA_VISIBLE_DEVICES: "2,3,4,7" # set the GPU ids to be used
 
 micro_batch_size_per_gpu: 4
-ppo_mini_batch_size: 32
+ppo_mini_batch_size: 16
 model_path: /map-vepfs/huggingface/models/Qwen2.5-1.5B-Instruct
 enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
 grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
@@ -42,11 +42,11 @@ actor_rollout_ref:
   rollout:
     log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
     tensor_model_parallel_size: 4
-    max_model_len: 2048
+    max_model_len: 16384
     prompt_length: 1 # useless. Just put it here
     response_length: 400 # single-turn response length
     gpu_memory_utilization: 0.9
-    max_num_batched_tokens: 2048 # set only when enable_chunked_prefill is true
+    max_num_batched_tokens: 16384 # set only when enable_chunked_prefill is true
     temperature: 1
     rollout_filter_ratio: 0.25
     rollout_filter_type: std # max_mean or std
@@ -110,12 +110,12 @@ agent_proxy:
 es_manager:
   format_penalty: -0.1
   train:
-    env_groups: 8
+    env_groups: 4
     # under the same group, the env config and env seed are ensured to be equal
     group_size: 16
     env_configs:
       tags: ["DeepResearch"]
-      n_groups: [8] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
+      n_groups: [4] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
   val:
     env_groups: 256
     group_size: 1 # should be set to 1 because when val temperature is set to 0 and group size > 1, there will be repetitive prompts which leads to same trajectory.

@@ -13,4 +13,5 @@ class DeepResearchEnvConfig(BaseEnvConfig):
     )
     max_tokens: int = 32000          # observation 截断
     invalid_penalty: float = -0.2   # JSON 解析 / 工具调用失败惩罚
+    format_penalty: float = -0.5  # 格式失败惩罚
     max_steps: int = 30             # 轨迹最大步数，防止死循环

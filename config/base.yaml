@@ -4,11 +4,11 @@ defaults:
   - envs
 
 system:
-  CUDA_VISIBLE_DEVICES: "0,1,2,3" # set the GPU ids to be used
+  CUDA_VISIBLE_DEVICES: "2,3,4,7" # set the GPU ids to be used
 
 micro_batch_size_per_gpu: 4
 ppo_mini_batch_size: 32
-model_path: Qwen/Qwen2.5-0.5B-Instruct
+model_path: /map-vepfs/huggingface/models/Qwen2.5-1.5B-Instruct
 enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
 grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
 
@@ -41,7 +41,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
   rollout:
     log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-    tensor_model_parallel_size: 1
+    tensor_model_parallel_size: 4
     max_model_len: 2048
     prompt_length: 1 # useless. Just put it here
     response_length: 400 # single-turn response length
@@ -90,7 +90,7 @@ trainer:
   total_training_steps: 200
   validation_steps: 1 # validation instances = validation_steps * val_env_groups * group_size
   val_before_train: True
-  n_gpus_per_node: 1
+  n_gpus_per_node: 4
   test_freq: 10
   generations_to_log_to_wandb: 
     train: 128 # TODO: will be implemented

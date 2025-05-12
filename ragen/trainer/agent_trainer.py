@@ -428,6 +428,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
+            wandb_id=self.config.trainer.wandb_id,
         )
 
         self.global_steps = 0

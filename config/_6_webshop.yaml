@@ -7,6 +7,8 @@ model_path: Qwen/Qwen2.5-3B-Instruct
 
 trainer:
   experiment_name: webshop
+  save_freq: 10
+  wandb_id: ksapnxxd
 
 
 agent_proxy:
@@ -25,3 +27,5 @@ es_manager:
   val:
     env_configs:
       tags: ["WebShop"]
+
+      

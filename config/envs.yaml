@@ -143,6 +143,6 @@ custom_envs:
     max_tokens: 200
     # env_config: null
     env_config: 
-      dataset: small # choose from small or full
+      dataset: full # choose from small or full
     #   data_path: /RAGEN-Dev/external/webshop-minimal/webshop_minimal
     #   file_path: /RAGEN-Dev/external/webshop-minimal/webshop_minimal/data/items_shuffle.json

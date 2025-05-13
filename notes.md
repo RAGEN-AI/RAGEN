@@ -41,6 +41,36 @@ Thinking:
 - I think this is largely due to a prior: max actions is 9. This may actually helped starpo: it limits the "exploration" of grpo and implicitly controls its variance. (TODO: experiment with higher limit)
 
 
+## update 0512
+### full dataset results
+![alt text](image.png)
+
+starpo-s grpo (0.45) > starpo-s ppo (0.4) > starpo grpo (0.36) > starpo ppo (0.24)
+
+### starpo-s ppo behavior
+It's the only strategy that has a U shaped reponse length curve. All others are almost monotonically decreasing.
+Obviously it's trying to select more options.
+r_options up, success purchase down. All non-zero r_* up. This means the model is actually learning to improve the purchase quality.
+
+Failure mode in the last step:
+output3:
+echo trap when choosing products.
+![alt text](image-1.png)
+
+output5:
+Note it's trying to choose size even though it has 1 action left.
+![alt text](image-2.png)
+Before that it knows to buy at last step.
+![alt text](image-3.png)
+
+Does this mean the model is less smart/generalizible?
+
+### grpo and ppo leant different things?
+
+![alt text](image-4.png)
 
 
-
+TODOs:
+- try validate different models and see if they really learnt different things.
+- try 7b models. 3b is still too small.
+- try allow more actions.

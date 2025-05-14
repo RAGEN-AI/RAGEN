@@ -12,6 +12,6 @@ class DeepResearchEnvConfig(BaseEnvConfig):
         "请你从网上搜索黄金最新的新闻并且记一下笔记，然后检索笔记验证。"
     )
     max_tokens: int = 32000          # observation 截断
-    invalid_penalty: float = -0.2   # JSON 解析 / 工具调用失败惩罚
-    format_penalty: float = -0.5  # 格式失败惩罚
+    invalid_penalty: float = 0.7    # 工具调用失败奖励
+    format_penalty: float = 0.0     # 格式失败奖励
     max_steps: int = 30             # 轨迹最大步数，防止死循环

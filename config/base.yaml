@@ -1,133 +1,132 @@
 defaults:
-  - ppo_trainer # this is a symbolic link to the verl/verl/trainer/config/ppo_trainer.yaml file
-  - _self_  
-  - envs
+  - ppo_trainer # 导入 ppo_trainer 的默认配置，通常指向 verl/verl/trainer/config/ppo_trainer.yaml
+  - _self_      # 表示引用当前文件自身的配置作为默认值的一部分
+  - envs        # 导入 envs.yaml 中定义的环境配置
 
 system:
-  CUDA_VISIBLE_DEVICES: "2,3,4,7" # set the GPU ids to be used
+  CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7" # 指定训练和推理时可见的 GPU 设备 ID
 
-micro_batch_size_per_gpu: 4
-ppo_mini_batch_size: 16
-model_path: /map-vepfs/huggingface/models/Qwen2.5-1.5B-Instruct
-enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
-grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
+micro_batch_size_per_gpu: 1       # 每个 GPU 上的微批次大小，用于控制单次前向/后向传播的数据量
+ppo_mini_batch_size: 8           # PPO 算法中用于更新策略的 mini-batch 大小
+model_path: /map-vepfs/huggingface/models/Qwen2.5-1.5B-Instruct # 预训练模型的路径
+enable_response_mask: True        # 是否启用响应掩码。启用后，在计算损失时可能不再计算 P(st|history)，有助于提高 rollout/old_log_prob 的稳定性
+grpo_advantage_length_weight: False # 是否在 GRPO (Generalized Reward Policy Optimization) 优势估计中对长度进行加权。如果 critic/advantage_estimator 是 GRPO 且 critic/advantages/mean 过低，可以尝试启用此项以鼓励更长的推理链并防止模型输出坍塌
 
-lora:
-  rank: 0
-  alpha: 16
-  target_modules: all-linear
+lora: # LoRA (Low-Rank Adaptation) 微调相关参数
+  rank: 0                         # LoRA 的秩。如果为 0，则不使用 LoRA
+  alpha: 16                       # LoRA 的 alpha 参数，用于缩放 LoRA 权重
+  target_modules: all-linear      # LoRA 应用的目标模块，'all-linear' 表示所有线性层
 
-actor_rollout_ref:
-  model:
-    path: ${model_path}
-    lora_rank: ${lora.rank}
-    lora_alpha: ${lora.alpha}
-    target_modules: ${lora.target_modules}
-  actor:
-    ppo_mini_batch_size: ${ppo_mini_batch_size}  # by default, ppo_mini_batch_size = train_batch_size / 4
-    micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-    ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-    use_ref: True
-    entropy_coeff: 0.001
-    use_kl_loss: False
-    kl_loss_coef: 0.000
-    kl_loss_type: kl
-    clip_ratio_low: 0.2
-    clip_ratio_high: 0.28
-    grpo_advantage_length_weight: ${grpo_advantage_length_weight}
-    optim:
-      betas: [0.9, 0.999]
-  ref:
-    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-  rollout:
-    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-    tensor_model_parallel_size: 4
-    max_model_len: 16384
-    prompt_length: 1 # useless. Just put it here
-    response_length: 400 # single-turn response length
-    gpu_memory_utilization: 0.9
-    max_num_batched_tokens: 16384 # set only when enable_chunked_prefill is true
-    temperature: 1
-    rollout_filter_ratio: 0.25
-    rollout_filter_type: std # max_mean or std
-    enforce_eager: True #  for small models, set both enforce_eager and free_cache_engine to False to make rollout faster
-    free_cache_engine: True
-    val_kwargs:
-      do_sample: True
-      temperature: 0.5
-    tp_size_check: true
+actor_rollout_ref: # Actor (策略网络)、Rollout (数据收集) 和 Reference (参考模型) 相关配置
+  model: # Actor 和 Ref 模型共享的基础模型配置
+    path: ${model_path}             # 模型路径，引用顶层的 model_path
+    lora_rank: ${lora.rank}         # LoRA 秩，引用顶层的 lora.rank
+    lora_alpha: ${lora.alpha}       # LoRA alpha，引用顶层的 lora.alpha
+    target_modules: ${lora.target_modules} # LoRA 目标模块，引用顶层的 lora.target_modules
+  actor: # Actor (策略网络) 特定配置
+    ppo_mini_batch_size: ${ppo_mini_batch_size}  # PPO mini-batch 大小，引用顶层的 ppo_mini_batch_size
+    micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # 每个 GPU 的微批次大小，引用顶层的 micro_batch_size_per_gpu
+    ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # PPO 训练时每个 GPU 的微批次大小，引用顶层的 micro_batch_size_per_gpu
+    use_ref: True                   # 是否使用参考模型 (Reference Model) 来计算 KL 散度或作为 PPO 的旧策略
+    entropy_coeff: 0.001            # 熵正则化系数，鼓励策略探索
+    use_kl_loss: False              # 是否使用 KL 散度损失项
+    kl_loss_coef: 0.000             # KL 散度损失的系数
+    kl_loss_type: kl                # KL 散度损失的类型 (如 'kl', 'abs', 'mse')
+    clip_ratio_low: 0.2             # PPO 裁剪目标的下限比例
+    clip_ratio_high: 0.28           # PPO 裁剪目标的上限比例
+    grpo_advantage_length_weight: ${grpo_advantage_length_weight} # 是否对 GRPO 优势估计进行长度加权，引用顶层同名参数
+    optim: # 优化器配置
+      betas: [0.9, 0.999]           # AdamW 或类似优化器的 beta 参数
+  ref: # Reference (参考模型) 特定配置
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # 计算参考模型 log_prob 时每个 GPU 的微批次大小
+  rollout: # Rollout (数据收集/采样) 配置
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # Rollout 时计算 log_prob 的微批次大小
+    tensor_model_parallel_size: 4   # 模型张量并行的 GPU 数量
+    max_model_len: 16384            # 模型支持的最大序列长度 (prompt + response)
+    prompt_length: 1                # 提示 (prompt) 的长度，这里标记为 'useless'，可能实际未使用或被其他参数覆盖
+    response_length: 1024            # 模型单轮生成的响应 (response) 的最大长度
+    gpu_memory_utilization: 0.8     # 目标 GPU 显存利用率 (vLLM 等推理引擎参数)
+    max_num_batched_tokens: 16384   # 当启用分块预填充 (enable_chunked_prefill) 时，批处理的最大 token 数 (vLLM 参数)
+    temperature: 1                  #采样温度，控制生成文本的随机性，较高温度更随机
+    rollout_filter_ratio: 1      # Rollout 过滤器比例，可能用于过滤掉低质量的轨迹
+    rollout_filter_type: std        # Rollout 过滤器类型 ('max_mean' 或 'std')
+    enforce_eager: True             # 是否强制使用 Eager模式 (PyTorch)。对于小模型，与 free_cache_engine 一同设为 False 可能加速 rollout
+    free_cache_engine: True         # 是否在 rollout 后释放缓存引擎 (vLLM 参数)
+    val_kwargs: # 验证集 rollout 的特定参数
+      do_sample: True               # 验证时是否进行采样
+      temperature: 0.5              # 验证时的采样温度
+    tp_size_check: false             # 是否检查张量并行大小 (tensor_model_parallel_size) 的有效性
 
-critic:
-  ppo_mini_batch_size: ${ppo_mini_batch_size} # by default, ppo_mini_batch_size = train_batch_size / 4
-  ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
-  model:
-    path: ${model_path}
-    lora_rank: ${lora.rank}
-    lora_alpha: ${lora.alpha}
-    target_modules: ${lora.target_modules}
-  optim:
-    betas: [0.9, 0.999]
+critic: # Critic (价值网络) 相关配置
+  ppo_mini_batch_size: ${ppo_mini_batch_size} # PPO mini-batch 大小，引用顶层的 ppo_mini_batch_size
+  ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # PPO 训练时每个 GPU 的微批次大小
+  model: # Critic 模型配置
+    path: ${model_path}             # 模型路径
+    lora_rank: ${lora.rank}         # LoRA 秩
+    lora_alpha: ${lora.alpha}       # LoRA alpha
+    target_modules: ${lora.target_modules} # LoRA 目标模块
+  optim: # Critic 优化器配置
+    betas: [0.9, 0.999]           # AdamW 或类似优化器的 beta 参数
 
-data:
-  max_prompt_length: null
-  max_response_length: null
-  train_batch_size: null
+data: # 数据相关配置
+  max_prompt_length: null         # 最大提示长度，null 表示不限制或由其他配置决定
+  max_response_length: null       # 最大响应长度，null 表示不限制或由其他配置决定
+  train_batch_size: null          # 训练批次大小，null 表示不限制或由其他配置决定 (通常是 micro_batch_size_per_gpu * n_gpus_per_node * gradient_accumulation_steps)
 
-algorithm:
-  gamma: 1.0
-  lam: 1.0
-  high_level_gamma: 0.95
-  adv_estimator: gae
-  bi_level_gae: False
-  kl_penalty: kl  # how to estimate kl divergence
-  kl_ctrl:
-    type: fixed
-    kl_coef: 0.000
+algorithm: # 强化学习算法核心参数
+  gamma: 1.0                      # 折扣因子 (discount factor)
+  lam: 1.0                        # GAE (Generalized Advantage Estimation) 中的 lambda 参数
+  high_level_gamma: 0.95          # (如果使用) 高层级策略的折扣因子
+  adv_estimator: gae              # 优势函数估计方法，这里是 GAE
+  bi_level_gae: False             # 是否使用双层 GAE
+  kl_penalty: kl                  # KL 散度惩罚的估计方法
+  kl_ctrl: # KL 控制器配置，用于动态调整 KL 散度惩罚系数
+    type: fixed                   # KL 控制器类型，'fixed' 表示固定系数
+    kl_coef: 0.000                # 固定的 KL 散度惩罚系数
 
-trainer:
-  project_name: ragen_latest
-  experiment_name: test
-  total_training_steps: 200
-  validation_steps: 1 # validation instances = validation_steps * val_env_groups * group_size
-  val_before_train: True
-  n_gpus_per_node: 4
-  test_freq: 10
-  generations_to_log_to_wandb: 
-    train: 128 # TODO: will be implemented
-    val: 20
-  logger: [ 'console', 'wandb' ]
+trainer: # 训练器 (Trainer) 配置
+  project_name: ragen_latest      # WandB (Weights & Biases) 项目名称
+  experiment_name: test           # WandB 实验名称
+  total_training_steps: 300       # 总训练步数
+  validation_steps: 1             # 验证步数。验证实例数 = validation_steps * val_env_groups * group_size
+  val_before_train: True          # 是否在训练开始前进行一次验证
+  n_gpus_per_node: 8              # 每个节点的 GPU 数量
+  test_freq: 10                   # 测试频率 (每多少个训练步进行一次测试)
+  generations_to_log_to_wandb: # 记录到 WandB 的生成样本数量
+    train: 128                    # 训练时记录的样本数
+    val: 20                       # 验证时记录的样本数
+  logger: [ 'console', 'wandb' ]  # 日志记录方式，'console' 表示控制台输出，'wandb' 表示记录到 WandB
 
-agent_proxy:
-  max_turn: 5
-  action_sep: "||"
-  max_actions_per_turn: 5 # how many actions can be output at most in a single turn
-  use_turn_scores: False # important to GAE when applying token-level rewards to token-level advantages. If False, will take the sum of scores as the reward for the last turn.
-  enable_think: True # False -> no think RL
-  reward_normalization:
-    grouping: "state" # state / batch / inductive
-    method: "identity" # asym_clip / identity / mean_std
+agent_proxy: # Agent 代理配置，用于处理 Agent 与环境的交互逻辑
+  max_turn: 5                     # Agent 在一个 episode 中最大交互轮数
+  action_sep: "||"                # 多个离散动作之间的分隔符
+  max_actions_per_turn: 5         # Agent 单轮最大输出动作数量
+  use_turn_scores: False          # 是否使用轮次得分。对于 GAE，当将 token 级奖励应用于 token 级优势时很重要。如果为 False，则将最后一轮的得分总和作为该轮的奖励。
+  enable_think: True              # 是否启用 "思考" 步骤 (如 CoT)。False 表示不进行思考的 RL
+  reward_normalization: # 奖励归一化配置
+    grouping: "state"             # 归一化分组方式 ('state', 'batch', 'inductive')
+    method: "identity"            # 归一化方法 ('asym_clip', 'identity', 'mean_std')
 
-es_manager:
-  format_penalty: -0.1
-  train:
-    env_groups: 4
-    # under the same group, the env config and env seed are ensured to be equal
-    group_size: 16
+es_manager: # Environment State Manager (环境状态管理器) 配置
+  format_penalty: -0.1            # 对格式错误的 Agent 输出施加的惩罚值
+  train: # 训练环境配置
+    env_groups: 8                 # 训练时环境组的数量。每个组内的环境配置和种子在每代中是相同的。
+    group_size: 1                 # 每个环境组的大小 (并行的环境实例数量)
+    env_configs: # 环境的具体配置
+      tags: ["DeepResearch"]      # 使用的环境标签，对应 `envs.yaml` 中的环境定义
+      n_groups: [8]               # 每个标签的环境分配到的组数
+  val: # 验证环境配置
+    env_groups: 8                 # 验证时环境组的数量
+    group_size: 1                 # 验证时每个环境组的大小。应设为1，因为当验证温度设为0且组大小>1时，重复的提示会导致相同的轨迹。
     env_configs:
       tags: ["DeepResearch"]
-      n_groups: [4] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
-  val:
-    env_groups: 256
-    group_size: 1 # should be set to 1 because when val temperature is set to 0 and group size > 1, there will be repetitive prompts which leads to same trajectory.
-    env_configs:
-      tags: ["DeepResearch"]
-      n_groups: [256] # TODO: If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
+      n_groups: [8]
 
-ctx_manager:
-  generation: # go to vllm
+ctx_manager: # Context Manager (上下文管理器) 配置，可能用于管理生成过程中的上下文
+  generation: # 生成配置 (可能传递给 vLLM 或类似推理服务)
     gen_config:
-      response_length: ${actor_rollout_ref.rollout.response_length}
-      temperature: ${actor_rollout_ref.rollout.temperature}
-      top_p: ${actor_rollout_ref.rollout.top_p}
-      top_k: ${actor_rollout_ref.rollout.top_k}
-      kwargs: null
+      response_length: ${actor_rollout_ref.rollout.response_length} # 生成响应的长度
+      temperature: ${actor_rollout_ref.rollout.temperature}        # 生成温度
+      top_p: ${actor_rollout_ref.rollout.top_p}                    # top-p (nucleus) 采样参数 (这里 base.yaml 中未直接定义 top_p，可能从 ppo_trainer 默认值或其他地方继承)
+      top_k: ${actor_rollout_ref.rollout.top_k}                    # top-k 采样参数 (这里 base.yaml 中未直接定义 top_k)
+      kwargs: null                                                 # 其他传递给生成函数的参数

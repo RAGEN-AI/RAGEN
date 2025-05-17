@@ -146,7 +146,14 @@ python train.py --config-name base
 ```
 
 ### Parameter efficient training with LoRA
-We provide a default configuration with LoRA enabled in `config/base-lora.yaml`. To customize the LoRA settings, see the the `lora` section at the top of the configuration file.
+We provide a default configuration with LoRA enabled in `config/base-lora.yaml`. To customize the LoRA settings, see the the `lora` section at the top of the configuration file. The current settings are:
+
+```yaml
+lora rank: 64
+lora alpha: 64
+actor learning rate: 1e-5
+critic learning rate: 1e-4
+```
 
 To train with LoRA:
 

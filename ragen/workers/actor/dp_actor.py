@@ -24,7 +24,6 @@ import torch
 from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
@@ -35,6 +34,9 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
+
+from peft import PeftModel
+
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -174,7 +176,7 @@ class DataParallelPPOActor(BasePPOActor):
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
-    def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
+    def compute_log_prob(self, data: DataProto, calculate_entropy=False, no_lora=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -214,6 +216,13 @@ class DataParallelPPOActor(BasePPOActor):
         else:
             micro_batches = batch.split(micro_batch_size)
 
+        is_peft_model = not no_lora and isinstance(self.actor_module._fsdp_wrapped_module, PeftModel)
+        if is_peft_model:
+            print(f"[INFO] Actor is a PeftModel")
+            with FSDP.summon_full_params(self.actor_module):
+                self.actor_module.merge_adapter()
+            print(f"[INFO] Merged adapter actor")
+
         log_probs_lst = []
         entropy_lst = []
         for micro_batch in micro_batches:
@@ -226,6 +235,14 @@ class DataParallelPPOActor(BasePPOActor):
                 entropy_lst.append(entropy)
 
         log_probs = torch.concat(log_probs_lst, dim=0)
+
+        if is_peft_model:
+            print(f"[INFO] Unmerging adapter actor")
+            with FSDP.summon_full_params(self.actor_module):
+                self.actor_module.unmerge_adapter()
+            print(f"[INFO] Unmerged adapter actor")
+        
+
         entropys = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)

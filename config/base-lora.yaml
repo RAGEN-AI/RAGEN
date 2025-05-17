@@ -1,0 +1,134 @@
+defaults:
+  - ppo_trainer # this is a symbolic link to the verl/verl/trainer/config/ppo_trainer.yaml file
+  - envs
+
+system:
+  CUDA_VISIBLE_DEVICES: "0"
+
+micro_batch_size_per_gpu: 4
+ppo_mini_batch_size: 32
+model_path: Qwen/Qwen2.5-0.5B-Instruct
+enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
+grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
+
+lora:
+  rank: 64
+  alpha: 64
+  target_modules: all-linear
+
+actor_rollout_ref:
+  model:
+    path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
+  actor:
+    ppo_mini_batch_size: ${ppo_mini_batch_size}  # by default, ppo_mini_batch_size = train_batch_size / 4
+    micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
+    ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
+    use_ref: True
+    entropy_coeff: 0.001
+    use_kl_loss: False
+    kl_loss_coef: 0.000
+    kl_loss_type: kl
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.28
+    grpo_advantage_length_weight: ${grpo_advantage_length_weight}
+    optim:
+      betas: [0.9, 0.999]
+      lr: 1e-5
+  ref:
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
+  rollout:
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
+    tensor_model_parallel_size: 1
+    max_model_len: 3600
+    prompt_length: 1 # useless. Just put it here
+    response_length: 400 # single-turn response length
+    gpu_memory_utilization: 0.5
+    max_num_batched_tokens: 8192 # set only when enable_chunked_prefill is true
+    temperature: 1
+    rollout_filter_ratio: 0.25
+    rollout_filter_type: std # max_mean or std
+    enforce_eager: True #  for small models, set both enforce_eager and free_cache_engine to False to make rollout faster
+    free_cache_engine: True
+    val_kwargs:
+      do_sample: True
+      temperature: 0.5
+    tp_size_check: true
+
+critic:
+  ppo_mini_batch_size: ${ppo_mini_batch_size} # by default, ppo_mini_batch_size = train_batch_size / 4
+  ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu} # following micro_batch_size_per_gpu
+  model:
+    path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
+  optim:
+    betas: [0.9, 0.999]
+    lr: 1e-4
+
+data:
+  max_prompt_length: null
+  max_response_length: null
+  train_batch_size: null
+
+algorithm:
+  gamma: 1.0
+  lam: 1.0
+  high_level_gamma: 0.95
+  adv_estimator: gae
+  bi_level_gae: False
+  kl_penalty: kl  # how to estimate kl divergence
+  kl_ctrl:
+    type: fixed
+    kl_coef: 0.000
+
+trainer:
+  project_name: ragen_latest
+  experiment_name: test
+  total_training_steps: 200
+  validation_steps: 1 # validation instances = validation_steps * val_env_groups * group_size
+  val_before_train: True
+  n_gpus_per_node: 1
+  test_freq: 10
+  generations_to_log_to_wandb: 
+    train: 128 # TODO: will be implemented
+    val: 20
+  logger: [ 'console', 'wandb' ]
+
+agent_proxy:
+  max_turn: 5
+  action_sep: "||"
+  max_actions_per_turn: 5 # how many actions can be output at most in a single turn
+  use_turn_scores: False # important to GAE when applying token-level rewards to token-level advantages. If False, will take the sum of scores as the reward for the last turn.
+  enable_think: True # False -> no think RL
+  reward_normalization:
+    grouping: "state" # state / batch / inductive
+    method: "identity" # asym_clip / identity / mean_std
+
+es_manager:
+  format_penalty: -0.1
+  train:
+    env_groups: 8
+    # under the same group, the env config and env seed are ensured to be equal
+    group_size: 16
+    env_configs:
+      tags: ["SimpleSokoban"]
+      n_groups: [8] # If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
+  val:
+    env_groups: 256
+    group_size: 1 # should be set to 1 because when val temperature is set to 0 and group size > 1, there will be repetitive prompts which leads to same trajectory.
+    env_configs:
+      tags: ["SimpleSokoban"]
+      n_groups: [256] # TODO: If not set, all env names divide nums equally. Under the same group, the env config and env seed (prompt) are equal in each generation
+
+ctx_manager:
+  generation: # go to vllm
+    gen_config:
+      response_length: ${actor_rollout_ref.rollout.response_length}
+      temperature: ${actor_rollout_ref.rollout.temperature}
+      top_p: ${actor_rollout_ref.rollout.top_p}
+      top_k: ${actor_rollout_ref.rollout.top_k}
+      kwargs: null

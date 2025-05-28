@@ -262,5 +262,6 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
 """
 Use example:
 
-python train.py --config-name base
+python train.py --config-name base > train.log 2>&1
+
 """

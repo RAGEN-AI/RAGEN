@@ -1,0 +1,132 @@
+defaults:
+  - ppo_trainer
+  - _self_
+  - envs
+
+system:
+  CUDA_VISIBLE_DEVICES: "7"  # 只使用GPU 5
+
+micro_batch_size_per_gpu: 1
+ppo_mini_batch_size: 8
+model_path: /map-vepfs/qinyu/CodeSpace/LLaMA-Factory/saves/qwen2_5-0_5b/full/sft
+enable_response_mask: True
+grpo_advantage_length_weight: False
+
+lora:
+  rank: 0
+  alpha: 16
+  target_modules: all-linear
+
+actor_rollout_ref:
+  model:
+    path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
+  actor:
+    ppo_mini_batch_size: ${ppo_mini_batch_size}
+    micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
+    ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
+    use_ref: True
+    entropy_coeff: 0.001
+    use_kl_loss: False
+    kl_loss_coef: 0.000
+    kl_loss_type: kl
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.28
+    grpo_advantage_length_weight: ${grpo_advantage_length_weight}
+    optim:
+      betas: [0.9, 0.999]
+  ref:
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
+  rollout:
+    log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
+    tensor_model_parallel_size: 1  # 修改为1，因为只有一个GPU
+    max_model_len: 16384
+    prompt_length: 1
+    response_length: 1024
+    gpu_memory_utilization: 0.8
+    max_num_batched_tokens: 16384
+    temperature: 1
+    rollout_filter_ratio: 1
+    rollout_filter_type: std
+    enforce_eager: True
+    free_cache_engine: True
+    val_kwargs:
+      do_sample: True
+      temperature: 0.5
+    tp_size_check: false
+
+critic:
+  ppo_mini_batch_size: ${ppo_mini_batch_size}
+  ppo_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
+  model:
+    path: ${model_path}
+    lora_rank: ${lora.rank}
+    lora_alpha: ${lora.alpha}
+    target_modules: ${lora.target_modules}
+  optim:
+    betas: [0.9, 0.999]
+
+data:
+  max_prompt_length: null
+  max_response_length: null
+  train_batch_size: null
+
+algorithm:
+  gamma: 1.0
+  lam: 1.0
+  high_level_gamma: 0.95
+  adv_estimator: gae
+  bi_level_gae: False
+  kl_penalty: kl
+  kl_ctrl:
+    type: fixed
+    kl_coef: 0.000
+
+trainer:
+  project_name: ragen_single_gpu
+  experiment_name: test
+  total_training_steps: 300
+  validation_steps: 1
+  val_before_train: True
+  n_gpus_per_node: 1  # 修改为1，因为只有一个GPU
+  test_freq: 10
+  generations_to_log_to_wandb:
+    train: 128
+    val: 20
+  logger: [ 'console', 'wandb' ]
+
+agent_proxy:
+  max_turn: 5
+  action_sep: "||"
+  max_actions_per_turn: 5
+  use_turn_scores: False
+  enable_think: True
+  reward_normalization:
+    grouping: "state"
+    method: "identity"
+
+es_manager:
+  format_penalty: -0.1
+  train:
+    env_groups: 8
+    group_size: 1
+    env_configs:
+      tags: ["DeepResearch"]
+      n_groups: [8]
+  val:
+    env_groups: 8
+    group_size: 1
+    env_configs:
+      tags: ["DeepResearch"]
+      n_groups: [8]
+
+ctx_manager:
+  generation:
+    gen_config:
+      response_length: ${actor_rollout_ref.rollout.response_length}
+      temperature: ${actor_rollout_ref.rollout.temperature}
+      top_p: ${actor_rollout_ref.rollout.top_p}
+      top_k: ${actor_rollout_ref.rollout.top_k}
+      kwargs: null 

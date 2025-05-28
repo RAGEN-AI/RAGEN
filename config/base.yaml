@@ -8,7 +8,7 @@ system:
 
 micro_batch_size_per_gpu: 1       # 每个 GPU 上的微批次大小，用于控制单次前向/后向传播的数据量
 ppo_mini_batch_size: 8           # PPO 算法中用于更新策略的 mini-batch 大小
-model_path: /map-vepfs/huggingface/models/Qwen2.5-1.5B-Instruct # 预训练模型的路径
+model_path: /map-vepfs/qinyu/CodeSpace/LLaMA-Factory/saves/qwen2_5-0_5b/full/sft # 预训练模型的路径
 enable_response_mask: True        # 是否启用响应掩码。启用后，在计算损失时可能不再计算 P(st|history)，有助于提高 rollout/old_log_prob 的稳定性
 grpo_advantage_length_weight: False # 是否在 GRPO (Generalized Reward Policy Optimization) 优势估计中对长度进行加权。如果 critic/advantage_estimator 是 GRPO 且 critic/advantages/mean 过低，可以尝试启用此项以鼓励更长的推理链并防止模型输出坍塌
 

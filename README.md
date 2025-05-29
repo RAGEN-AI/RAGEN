@@ -334,6 +334,7 @@ We welcome all forms of feedback! Please raise an issue for bugs, questions, or 
  - [Agent-R1](https://github.com/0russwest0/Agent-R1): Training Powerful LLM Agents with End-to-End Reinforcement Learning
  - [OpenManus-RL](https://github.com/OpenManus/OpenManus-RL): A live stream development of RL tunning for LLM agents
  - [MetaSpatial](https://github.com/PzySeere/MetaSpatial): Reinforcing 3D Spatial Reasoning in VLMs for the Metaverse
+ - [s3](https://github.com/pat-jj/s3): Efficient Yet Effective Search Agent Training via Reinforcement Learning
 
 
 ## Contributors

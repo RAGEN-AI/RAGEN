@@ -31,7 +31,7 @@ class DeepResearchEnv(BaseLanguageBasedEnv):
         self.current_observation_for_action: str | None = None # 新增，用于存储导致当前action的观察
 
         # ---------- 提前配置日志记录器 ----------
-        self.save_path = Path("/map-vepfs/qinyu/CodeSpace/RAGEN")  # 确保 save_path 是 Path 对象
+        self.save_path = Path("log")  # 确保 save_path 是 Path 对象
         self.save_path.mkdir(parents=True, exist_ok=True)  # 确保目录存在
         
         # 修改 logger 名称，使其包含实例 ID 以更好地区分并行环境（如果需要更细致的区分）

@@ -10,8 +10,8 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 import re
-from verl.verl import DataProto
-from verl.verl.utils.dataset.rl_dataset import collate_fn
+from verl import DataProto
+from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer
 import hydra
 from ragen.utils import register_resolvers

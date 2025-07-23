@@ -48,7 +48,7 @@ actor_rollout_ref:
     max_model_len: 3600
     prompt_length: 1 # useless. Just put it here
     response_length: 400 # single-turn response length
-    gpu_memory_utilization: 0.5
+    gpu_memory_utilization: 0.7
     max_num_batched_tokens: 8192 # set only when enable_chunked_prefill is true
     temperature: 1
     rollout_filter_ratio: 0.25

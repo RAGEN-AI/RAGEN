@@ -16,7 +16,6 @@ register_resolvers()
 
 import multiprocessing
 from functools import partial
-from time import time
 
 use_parallel = True
 
@@ -67,7 +66,6 @@ class EnvStateManager:
         
         global use_parallel
         if use_parallel:
-            t0 = time()
             env_configs = self.config.env_configs
             done_groups = 0
             for tag, n_group in zip(env_configs.tags, env_configs.n_groups):
@@ -75,12 +73,9 @@ class EnvStateManager:
                 with multiprocessing.Pool(self.n_cpu // 4) as pool: # Only use 1/4 of the cores to avoid conflicts
                     self.envs = pool.map(func, range(done_groups * self.group_size, (done_groups + n_group) * self.group_size))
                 done_groups += n_group
-            print(f"Time taken to initialize all envs: {time() - t0}")
             return
 
-        t0 = time()
         self.envs = self._init_env_instances(self.config)
-        print(f"Time taken to initialize all envs: {time() - t0}")
     
     @staticmethod
     def _init_one_env(env_id, sys_config, group_size, tag):
@@ -196,7 +191,6 @@ class EnvStateManager:
 
         global use_parallel
         if use_parallel and len(all_env_inputs) > 120:
-            t0 = time()
             parallel_env_inputs = [{
                 **env_input,
                 'env': self.envs[env_input['env_id']],
@@ -213,10 +207,8 @@ class EnvStateManager:
                 self.rollout_cache[env['env_id']] = rollout_cache
                 if not turn_done:
                     env_outputs.append(rollout_cache)
-            print(f"Time taken to step: {time() - t0}")
             return env_outputs
 
-        t0 = time()
         envs = self.envs
         env_outputs = []
 
@@ -242,7 +234,6 @@ class EnvStateManager:
             if not turn_done: # NOTE done environments are not sent for further llm generation (for efficiency)
                 env_outputs.append(self.rollout_cache[env_id])
 
-        print(f"Time taken to step: {time() - t0}")
         return env_outputs
 
     @staticmethod
@@ -451,9 +442,9 @@ def main(config):
     es_manager = EnvStateManager(config, mode="train")
     es_manager.reset(seed=123)
 
-    # renders = es_manager.render()
-    # for i, render in enumerate(renders[:4]):  # Show first 2 environments
-    #     print(f"Environment {i}:\n{render}\n")
+    renders = es_manager.render()
+    for i, render in enumerate(renders[:4]):  # Show first 2 environments
+        print(f"Environment {i}:\n{render}\n")
     
     print("\nRunning step for training environments...")
     all_env_inputs = [
@@ -465,9 +456,7 @@ def main(config):
         } for i in range(128)
     ]
 
-    for i in range(5):
-        env_outputs = es_manager.step(all_env_inputs)
-    return
+    env_outputs = es_manager.step(all_env_inputs)
 
     print(f"Active environments after step: {len(env_outputs)}")
     print(f"env_outputs[:2]: {env_outputs[:2]}")

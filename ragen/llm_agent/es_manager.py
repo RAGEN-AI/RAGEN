@@ -438,8 +438,8 @@ def main(config):
     """
     Unit test for EnvStateManager
     """
-    print("Initializing environments...")
     es_manager = EnvStateManager(config, mode="train")
+    print("Initializing environments...")
     es_manager.reset(seed=123)
 
     renders = es_manager.render()
@@ -455,9 +455,7 @@ def main(config):
             "actions": ["down"]
         } for i in range(128)
     ]
-
     env_outputs = es_manager.step(all_env_inputs)
-
     print(f"Active environments after step: {len(env_outputs)}")
     print(f"env_outputs[:2]: {env_outputs[:2]}")
     

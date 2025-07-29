@@ -1,5 +1,7 @@
 # from .alfworld.config import AlfredEnvConfig
 # from .alfworld.env import AlfredTXTEnv
+from .alfworld_old.config import AlfredEnvConfig
+from .alfworld_old.env import AlfredTXTEnv
 from .bandit.config import BanditEnvConfig
 from .bandit.env import BanditEnv
 from .countdown.config import CountdownEnvConfig
@@ -17,7 +19,7 @@ REGISTERED_ENVS = {
     'countdown': CountdownEnv,
     'sokoban': SokobanEnv,
     'frozen_lake': FrozenLakeEnv,
-    # 'alfworld': AlfredTXTEnv,
+    'alfworld': AlfredTXTEnv,
     'metamathqa': MetaMathQAEnv,
 }
 
@@ -26,7 +28,7 @@ REGISTERED_ENV_CONFIGS = {
     'countdown': CountdownEnvConfig,
     'sokoban': SokobanEnvConfig,
     'frozen_lake': FrozenLakeEnvConfig,
-    # 'alfworld': AlfredEnvConfig,
+    'alfworld': AlfredEnvConfig,
     'metamathqa': MetaMathQAEnvConfig,
 }
 

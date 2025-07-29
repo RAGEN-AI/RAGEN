@@ -48,10 +48,12 @@ custom_envs:
       max_steps: 100
       render_mode: "rgb_array"
 
-  # Alfworld:
-  #   env_type: alfworld
-  #   env_instruction: "You are solving the Alfworld puzzle. "
-  #   env_config: null
+  Alfworld:
+    env_type: alfworld
+    max_actions_per_traj: 10
+    env_instruction: "You are an AI assistant helping to complete household tasks in a text-based environment. You need to navigate rooms, interact with objects, and complete the given task. Available actions will be provided to you at each step."
+    max_tokens: 200
+    env_config: null
 
   Countdown:
     env_type: countdown

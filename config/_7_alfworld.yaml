@@ -1,0 +1,19 @@
+defaults:
+  - base
+
+trainer:
+  experiment_name: alfworld
+
+es_manager:
+  train:
+    env_groups: 1
+    group_size: 1
+    env_configs:
+      tags: ["Alfworld"]
+      n_groups: [1]
+  val:
+    env_groups: 1
+    group_size: 1
+    env_configs:
+      tags: ["Alfworld"]
+      n_groups: [1]

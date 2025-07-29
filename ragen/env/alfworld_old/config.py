@@ -5,7 +5,7 @@ from typing import Dict
 @dataclass
 class AlfredEnvConfig(BaseEnvConfig):
     """configuration for text world AlfredEnv"""
-    config_file: str = "./ragen/env/alfworld/alfworld_config.yaml"
+    config_file: str = "./ragen/env/alfworld_old/alfworld_config_lite.yaml"
     action_lookup: Dict[int, str] = field(default_factory=lambda: {
         1: "look",
         2: "inventory",

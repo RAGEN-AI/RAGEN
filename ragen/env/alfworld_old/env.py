@@ -23,8 +23,8 @@ class AlfredTXTEnv(BaseLanguageBasedEnv):
         super().__init__()
         self.config = config
         self.ACTION_LOOKUP = self.config.action_lookup
-        # raw_env_config = load_config(self.config.config_file)
-        # self.raw_env = AlfredTWEnv(config=raw_env_config, train_eval="train")
+        raw_env_config = load_config(self.config.config_file)
+        self.raw_env = AlfredTWEnv(config=raw_env_config, train_eval="train")
         self.num_games = self.raw_env.num_games
         self.game_files = self.raw_env.game_files
         # print(f"Overall we have {len(self.game_files)} games in split={self.raw_env.train_eval}")

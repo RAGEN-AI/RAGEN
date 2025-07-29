@@ -55,6 +55,13 @@ custom_envs:
     max_tokens: 200
     env_config: null
 
+  alfworld:
+    env_type: alfworld
+    max_actions_per_traj: 3  # Reduced for minimal testing
+    env_instruction: "You are helping with a simple household task. Follow the instructions step by step."
+    max_tokens: 50  # Reduced to avoid empty sequence issues
+    env_config: null
+
   Countdown:
     env_type: countdown
     max_actions_per_traj: 1

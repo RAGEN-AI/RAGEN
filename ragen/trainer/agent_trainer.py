@@ -576,6 +576,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
 
                 # recompute old_log_probs
                 with _timer("old_log_prob", timing_raw):
+                    # breakpoint()
                     old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                     batch = batch.union(old_log_prob)
                     avg_old_log_prob = masked_mean(old_log_prob.batch["old_log_probs"], batch.batch["response_mask"])

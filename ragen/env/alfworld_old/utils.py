@@ -23,6 +23,11 @@ def check_format(action: str, templates: Any) -> bool:
     Validate that the action matches one of our action templates.
     Returns True if valid, False otherwise.
     """
+    # Type check to handle cases where action is not a string
+    if not isinstance(action, str):
+        print(f"Warning: check_format received non-string action: {action} (type: {type(action)})")
+        return False
+        
     if "None" in action:
         return False
     

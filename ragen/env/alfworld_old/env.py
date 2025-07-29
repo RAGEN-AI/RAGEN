@@ -97,17 +97,34 @@ class AlfredTXTEnv(BaseLanguageBasedEnv):
         else:
             return 0.0
     
-    def step(self, action: str):
+    def step(self, action):
         """
-        Take a step in the environment using the provided action string.
+        Take a step in the environment using the provided action string or action index.
         The action must match one of the templates in ACTION_LOOKUP.
         """
-        valid_action = check_format(action, self.ACTION_LOOKUP.values())
+        # Debug: Check what type of action we received
+        print(f"DEBUG: step() received action: {action} (type: {type(action)})")
+        
+        # Handle both integer action indices and string actions
+        if isinstance(action, int):
+            if action in self.ACTION_LOOKUP:
+                action_str = self.ACTION_LOOKUP[action]
+                print(f"DEBUG: Converted action index {action} to string: {action_str}")
+            else:
+                print(f"ERROR: Invalid action index: {action}")
+                return f"Invalid action index: {action}", 0, False, {"action_is_effective": False, "action_is_valid": False, "success": False}
+        elif isinstance(action, str):
+            action_str = action
+        else:
+            print(f"ERROR: Expected string or int action, got {type(action)}: {action}")
+            return f"Invalid action type: {type(action)}", 0, False, {"action_is_effective": False, "action_is_valid": False, "success": False}
+            
+        valid_action = check_format(action_str, self.ACTION_LOOKUP.values())
         
         if not valid_action:
-            return f"Invalid action format: {action}", 0, False, {"action_is_effective": False, "action_is_valid": False, "success": False}
+            return f"Invalid action format: {action_str}", 0, False, {"action_is_effective": False, "action_is_valid": False, "success": False}
         
-        obs, rewards, dones, infos = self.alfred_env.step([action])  # BatchEnv expects a list of commands
+        obs, rewards, dones, infos = self.alfred_env.step([action_str])  # BatchEnv expects a list of commands
         
         observation = obs[0]
         self.render_cache = observation

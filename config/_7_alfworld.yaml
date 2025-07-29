@@ -1,19 +1,23 @@
 defaults:
   - base
 
+micro_batch_size_per_gpu: 1
+ppo_mini_batch_size: 32
+model_path: Qwen/Qwen2.5-3B-Instruct
+
 trainer:
   experiment_name: alfworld
 
 es_manager:
   train:
-    env_groups: 1
-    group_size: 1
+    env_groups: 4
+    group_size: 16
     env_configs:
       tags: ["Alfworld"]
-      n_groups: [1]
+      n_groups: [4]
   val:
-    env_groups: 1
+    env_groups: 8
     group_size: 1
     env_configs:
       tags: ["Alfworld"]
-      n_groups: [1]
+      n_groups: [8]

@@ -1,0 +1,40 @@
+defaults:
+  - base
+
+# ArCHer-specific configuration
+# Based on "ArCHer: Training Language Model Agents via Hierarchical Multi-Turn RL"
+# by Yifei Zhou et al. (ICML 2024)
+
+trainer:
+  experiment_name: archer_baseline
+
+# Use ArCHer advantage estimator
+algorithm:
+  adv_estimator: archer
+  gamma: 1.0
+  lam: 1.0
+  high_level_gamma: 0.95  # High-level discount factor for turn-level rewards
+  
+# ArCHer works best with multi-turn environments
+agent_proxy:
+  max_turn: 10  # Allow more turns for ArCHer to demonstrate hierarchical learning
+  use_turn_scores: True  # Important for ArCHer's hierarchical structure
+  
+# ArCHer parameters (can be adjusted)
+archer:
+  alpha: 0.1  # Mixing coefficient between high-level and low-level value functions
+  
+# Use environments that benefit from hierarchical reasoning
+es_manager:
+  train:
+    env_groups: 8
+    group_size: 16
+    env_configs:
+      tags: ["SimpleSokoban", "FrozenLake"]  # Multi-step reasoning tasks
+      n_groups: [4, 4]
+  val:
+    env_groups: 256
+    group_size: 1
+    env_configs:
+      tags: ["SimpleSokoban", "FrozenLake"]
+      n_groups: [128, 128]

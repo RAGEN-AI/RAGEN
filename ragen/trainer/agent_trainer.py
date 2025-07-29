@@ -57,7 +57,7 @@ from ragen.llm_agent.agent_proxy import LLMAgentProxy
 from ragen.utils import GenerationsLogger
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, bi_level_gae=False, high_level_gamma=1.0):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, bi_level_gae=False, high_level_gamma=1.0, archer_alpha=0.1):
     # Back-compatible with trainers that do not compute response mask in fit
     if "response_mask" not in data.batch:
         data.batch["response_mask"] = compute_response_mask(data)
@@ -129,6 +129,18 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             token_level_rewards=data.batch["token_level_rewards"],
             response_mask=data.batch["response_mask"],
             index=data.non_tensor_batch["uid"],
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+    elif adv_estimator == AdvantageEstimator.ARCHER:
+        advantages, returns = core_algos.compute_archer_advantage_return(
+            token_level_rewards=data.batch["token_level_rewards"],
+            values=data.batch["values"],
+            loss_mask=data.batch["response_mask"],
+            gamma=gamma,
+            lam=lam,
+            high_level_gamma=high_level_gamma,
+            archer_alpha=archer_alpha
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -630,6 +642,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                         multi_turn=True,
                         high_level_gamma=self.config.algorithm.high_level_gamma,
                         bi_level_gae=self.config.algorithm.bi_level_gae,
+                        archer_alpha=self.config.get("archer", {}).get("alpha", 0.1),
                     )
 
                 ##### A very different setting, just here for testing: Can I normalize the advantages to have a mean of 0?

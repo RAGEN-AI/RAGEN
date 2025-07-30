@@ -1,0 +1,100 @@
+# Example configuration for Archer Trainer
+# This shows how to configure the Archer algorithm parameters
+
+defaults:
+  - base  # Inherit from base RAGEN configuration
+
+# Archer-specific algorithm parameters
+algorithm:
+  trainer_type: archer                # Use Archer trainer instead of default PPO
+  
+  # Archer-specific parameters (matching ArCHer code defaults)
+  replay_buffer_capacity: 50000  # Size of replay buffer (ArCHer default)
+  rollout_size: 50                # Number of trajectories per rollout (ArCHer default)
+  critic_epochs: 3                # Number of critic update epochs per step (ArCHer default) 
+  actor_epochs: 3                 # Number of actor update epochs per step (ArCHer default)
+  warmup_iterations: 20           # Number of steps before actor updates start (ArCHer default)
+  tau: 0.1                       # Soft update parameter for target networks (ArCHer default)
+  batch_size: 2                  # Batch size for sampling from replay buffer (ArCHer default)
+  
+  # Standard RL parameters (matching ArCHer defaults)
+  gamma: 0.9                     # Discount factor (ArCHer default)
+
+# Actor configuration for Archer
+actor_rollout_ref:
+  model:
+    path: Qwen/Qwen2.5-0.5B-Instruct  # Can be overridden
+    lora_rank: 0                      # LoRA rank (0 = full fine-tuning)
+    lora_alpha: 16                    # LoRA alpha
+    target_modules: all-linear        # LoRA target modules
+    enable_gradient_checkpointing: True
+    use_remove_padding: True
+  
+  actor:
+    ppo_mini_batch_size: 32           # Actor batch size
+    ppo_micro_batch_size_per_gpu: 4   # Micro batch size per GPU
+    use_dynamic_bsz: False
+    optim:
+      lr: 1e-5                        # Actor learning rate (ArCHer default: lm_lr)
+      betas: [0.9, 0.999]
+      weight_decay: 0.01
+    grad_clip: 0.01                   # Gradient clipping (ArCHer default: max_grad_norm)
+    entropy_coeff: 0.001              # Entropy coefficient
+    
+  ref:
+    log_prob_micro_batch_size_per_gpu: 4
+    
+  rollout:
+    log_prob_micro_batch_size_per_gpu: 4
+    tensor_model_parallel_size: 1
+    temperature: 2.0                  # ArCHer default temperature
+    max_model_len: 3600
+    response_length: 400
+    gpu_memory_utilization: 0.8
+
+# Critic configuration for Archer
+critic:
+  ppo_mini_batch_size: 32             # Critic batch size
+  ppo_micro_batch_size_per_gpu: 4     # Micro batch size per GPU
+  model:
+    path: Qwen/Qwen2.5-0.5B-Instruct  # Can be same as actor or different
+    lora_rank: 0                      # LoRA rank for critic
+    lora_alpha: 16                    # LoRA alpha
+    target_modules: all-linear        # LoRA target modules
+    enable_gradient_checkpointing: True
+    use_remove_padding: True
+  optim:
+    lr: 1e-3                          # Critic learning rate (ArCHer default: critic_lr)
+    betas: [0.9, 0.999]
+    weight_decay: 0.01
+
+# Reward model configuration (optional - can use function-based rewards)
+reward_model:
+  enable: False                       # Set to True if using model-based rewards
+  model:
+    path: null                        # Path to reward model if enabled
+    input_tokenizer: null             # Tokenizer for reward model
+  micro_batch_size_per_gpu: 4
+  reward_manager: naive               # Type of reward manager
+
+# Data configuration
+data:
+  train_files: ~/data/rlhf/gsm8k/train.parquet
+  val_files: ~/data/rlhf/gsm8k/test.parquet
+  max_prompt_length: 512
+  max_response_length: 512
+  train_batch_size: 128               # Total training batch size
+  prompt_key: prompt
+  reward_fn_key: data_source
+
+# Trainer configuration
+trainer:
+  total_training_steps: 1000
+  save_freq: 100
+  test_freq: 50
+  critic_warmup: 0
+  logger: wandb
+  project_name: archer_rl_training
+  experiment_name: archer_experiment
+  n_gpus_per_node: 1
+  val_before_train: True

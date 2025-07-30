@@ -4,6 +4,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 
 from ragen.trainer.agent_trainer import RayAgentTrainer
+from ragen.trainer.archer_trainer import RayArcherTrainer
 
 import ray
 import hydra
@@ -283,16 +284,31 @@ class TaskRunner:
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RayAgentTrainer(
-            config=config,
-            tokenizer=tokenizer,
-            processor=processor,
-            role_worker_mapping=role_worker_mapping,
-            resource_pool_manager=resource_pool_manager,
-            ray_worker_group_cls=ray_worker_group_cls,
-            reward_fn=reward_fn,
-            val_reward_fn=val_reward_fn
-        )
+        # Choose trainer based on algorithm type
+        trainer_type = getattr(config.algorithm, 'trainer_type', 'ppo')
+        
+        if trainer_type == 'archer':
+            trainer = RayArcherTrainer(
+                config=config,
+                tokenizer=tokenizer,
+                processor=processor,
+                role_worker_mapping=role_worker_mapping,
+                resource_pool_manager=resource_pool_manager,
+                ray_worker_group_cls=ray_worker_group_cls,
+                reward_fn=reward_fn,
+                val_reward_fn=val_reward_fn
+            )
+        else:
+            trainer = RayAgentTrainer(
+                config=config,
+                tokenizer=tokenizer,
+                processor=processor,
+                role_worker_mapping=role_worker_mapping,
+                resource_pool_manager=resource_pool_manager,
+                ray_worker_group_cls=ray_worker_group_cls,
+                reward_fn=reward_fn,
+                val_reward_fn=val_reward_fn
+            )
         trainer.init_workers()
         trainer.init_agent_proxy()
         trainer.fit()

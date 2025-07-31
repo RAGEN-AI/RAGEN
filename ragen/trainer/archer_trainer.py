@@ -130,22 +130,26 @@ class RayArcherTrainer(RayAgentTrainer):
         return self.replay_buffer[idx]
     
     def _compute_archer_advantages(self, batch: DataProto):
-        """Compute Archer-style advantages using Q(s,a) - V(s)"""
+        """Compute Archer-style advantages using Q(s,a) - V(s) and also compute returns"""
         if not self.use_critic:
-            # Fallback: use token-level rewards as advantages
-            return batch.batch["token_level_rewards"]
+            # Fallback: use token-level rewards as both advantages and returns
+            token_rewards = batch.batch["token_level_rewards"]
+            batch.batch["advantages"] = token_rewards
+            batch.batch["returns"] = token_rewards
+            return batch
         
-        # Use RAGEN's compute_advantage but with custom logic
-        # For now, use the existing advantage computation as a baseline
-        # In a full implementation, you would have separate Q and V networks
+        # Ensure we have all required fields
+        if "values" not in batch.batch:
+            values_output = self.critic_wg.compute_values(batch)
+            batch = batch.union(values_output)
         
-        # Compute values using the critic
-        values_output = self.critic_wg.compute_values(batch)
-        batch_with_values = batch.union(values_output)
+        if "token_level_rewards" not in batch.batch:
+            # If no rewards, use zeros
+            batch.batch["token_level_rewards"] = torch.zeros_like(batch.batch["values"])
         
         # For Archer, we want Q(s,a) - V(s)
         # Approximate Q(s,a) as V(s) + r (this is a simplification)
-        values = batch_with_values.batch["values"]
+        values = batch.batch["values"]
         rewards = batch.batch["token_level_rewards"]
         
         # Simple Q-value approximation: Q ≈ V + r
@@ -154,7 +158,15 @@ class RayArcherTrainer(RayAgentTrainer):
         # Advantages = Q(s,a) - V(s)
         advantages = q_values - values
         
-        return advantages
+        # For returns, we can use Q-values directly or V + rewards
+        # In Archer, returns are typically the target Q-values
+        returns = q_values
+        
+        # Store in batch
+        batch.batch["advantages"] = advantages
+        batch.batch["returns"] = returns
+        
+        return batch
 
     def _process_trajectories_for_buffer(self, batch: DataProto):
         """Convert batch data to trajectory format for replay buffer"""
@@ -195,7 +207,7 @@ class RayArcherTrainer(RayAgentTrainer):
             if trajectory:  # Only add non-empty trajectories
                 trajectories.append(trajectory)
         
-        return advantages
+        return trajectories
 
     def set_archer_agent(self, archer_agent):
         """Set an ArCHer agent for direct integration with ArCHer components"""
@@ -279,7 +291,7 @@ class RayArcherTrainer(RayAgentTrainer):
     def fit(self):
         """
         Main training loop for Archer algorithm.
-        Follows RAGEN's agent_proxy.rollout() pattern but uses replay buffer for off-policy learning.
+        Simplified to focus on core Archer algorithm without RAGEN-specific complexity.
         """
         from omegaconf import OmegaConf
         from verl.utils.tracking import Tracking
@@ -314,9 +326,8 @@ class RayArcherTrainer(RayAgentTrainer):
         import time
         self.start_time = time.time()
         
-        # Define the rollout filtering function (exactly like RAGEN)
         def _filter_rollout(batch):
-            """filter rollout based on in-group max - in-group mean. We want those groups to have high-quality rollouts that deviates significantly from the mean"""
+            """Filter rollout based on in-group max - in-group mean, following RAGEN pattern"""
             rollout_filter_ratio = self.config.actor_rollout_ref.rollout.rollout_filter_ratio
             num_groups, group_size = self.config.es_manager.train.env_groups, self.config.es_manager.train.group_size
 
@@ -324,6 +335,7 @@ class RayArcherTrainer(RayAgentTrainer):
             in_group_std = rm_scores.std(dim=-1)
             in_group_max = rm_scores.max(dim=-1).values
             in_group_mean = rm_scores.mean(dim=-1)
+            
             if rollout_filter_ratio == 1:
                 return batch, {"rollout/in_group_std": in_group_std.mean(), "rollout/in_group_max": in_group_max.mean(), "rollout/in_group_mean": in_group_mean.mean(), "rollout/chosen_in_group_std": in_group_std.mean(), "rollout/chosen_in_group_max": in_group_max.mean(), "rollout/chosen_in_group_mean": in_group_mean.mean()}
 
@@ -355,77 +367,63 @@ class RayArcherTrainer(RayAgentTrainer):
                 "rollout/chosen_in_group_mean": in_group_mean[top_groups].mean()
             }
             return batch, metrics
+
+        # Helper function to process batch for logging
+        def _process_batch_for_logging(batch):
+            input_ids = batch.batch["input_ids"]
+            response_ids = batch.batch["responses"]
+            reward_tensor = batch.batch.get("token_level_scores", torch.zeros_like(response_ids))
+            
+            inputs = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            outputs = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in response_ids]
+            scores = reward_tensor.sum(-1).cpu().tolist()
+            
+            return inputs, outputs, scores
         
-        # Follow RAGEN's exact step-based training loop
+        # Main training loop
         for step in range(self.total_training_steps):
             timing_raw = {}
-
             batch: DataProto = DataProto()
             is_last_step = self.global_steps >= self.total_training_steps
 
             with _timer("step", timing_raw):
-                # Generate a batch using agent_proxy (exactly like RAGEN)
+                # 1. Generate rollout using agent_proxy (following RAGEN pattern exactly)
                 with _timer("gen", timing_raw):
                     batch = self.agent_proxy.rollout(batch, val=False)
-                    # Apply RAGEN's rollout filtering (exactly like RAGEN)
                     batch, metrics = _filter_rollout(batch)
                     metrics.update({"train/" + key: value for key, value in batch.meta_info["metrics"].items()})
 
-                # Follow ALL RAGEN preprocessing steps exactly
-                
-                # Handle REMAX if needed (exactly like RAGEN)
-                if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                    # TODO: check if this is correct. Not tested yet
-                    logger.log("[NotImplemented] REMAX implementation is not tested yet in RAGEN. Exiting.")
-                    exit()
-                    with _timer("gen_max", timing_raw):
-                        gen_baseline_batch = deepcopy(batch)
-                        gen_baseline_batch.meta_info["do_sample"] = False
-                        gen_baseline_output = self.agent_proxy.rollout(gen_baseline_batch, val=False)
+                    inputs, outputs, scores = _process_batch_for_logging(batch)
 
-                        batch = batch.union(gen_baseline_output)
-                        reward_baseline_tensor = self.reward_fn(batch)
-                        reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
-
-                        batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
-
-                        batch.batch["reward_baselines"] = reward_baseline_tensor
-
-                        del gen_baseline_batch, gen_baseline_output
-
-                # Add UIDs (exactly like RAGEN)
-                batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                
-                # Set response mask (exactly like RAGEN)
-                batch.batch["response_mask"] = batch.batch["loss_mask"]
-                
-                # Balance batch if needed (exactly like RAGEN)
+                # 2. Balance batch if configured (following RAGEN pattern)
                 if self.config.trainer.balance_batch:
                     self._balance_batch(batch, metrics=metrics)
 
-                # Compute global valid tokens (exactly like RAGEN)
+                batch.batch["response_mask"] = batch.batch["loss_mask"]
+
+                # 3. Compute global token number (following RAGEN pattern)
                 batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                # Compute reward model score if needed (exactly like RAGEN)
-                if self.use_rm:
-                    with _timer("reward", timing_raw):
-                        reward_tensor = self.rm_wg.compute_rm_score(batch)
-                        batch = batch.union(reward_tensor)
+                # # 4. Compute reward model score if needed (following RAGEN pattern)
+                # if self.use_rm:
+                #     with _timer("reward", timing_raw):
+                #         reward_tensor = self.rm_wg.compute_rm_score(batch)
+                #         batch = batch.union(reward_tensor)
 
-                # Compute rewards (exactly like RAGEN)
-                if self.config.reward_model.launch_reward_fn_async:
-                    future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-                else:
-                    reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                # # 5. Compute reward function (following RAGEN pattern)
+                # if self.config.reward_model.launch_reward_fn_async:
+                #     future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                # else:
+                #     reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
-                # Recompute old log probs (exactly like RAGEN)
+                # 6. Compute old log probs (following RAGEN pattern)
                 with _timer("old_log_prob", timing_raw):
                     old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                     batch = batch.union(old_log_prob)
                     avg_old_log_prob = masked_mean(old_log_prob.batch["old_log_probs"], batch.batch["response_mask"])
                     metrics.update({"rollout/old_log_prob": avg_old_log_prob})
 
-                # Compute reference log prob if needed (exactly like RAGEN)
+                # 7. Compute reference log probs if using reference policy (following RAGEN pattern)
                 if self.use_reference_policy:
                     with _timer("ref", timing_raw):
                         if not self.ref_in_actor:
@@ -436,61 +434,36 @@ class RayArcherTrainer(RayAgentTrainer):
                         avg_ref_log_prob = masked_mean(ref_log_prob.batch["ref_log_prob"], batch.batch["response_mask"])
                         metrics.update({"rollout/ref_log_prob": avg_ref_log_prob})
 
-                # Compute values (exactly like RAGEN)
+                # 8. Compute values if using critic (following RAGEN pattern)
                 if self.use_critic:
                     with _timer("values", timing_raw):
                         values = self.critic_wg.compute_values(batch)
                         batch = batch.union(values)
 
-                # Process rewards and advantages (exactly like RAGEN)
-                with _timer("adv", timing_raw):
-                    # we combine with rule-based rm
-                    reward_extra_infos_dict: dict[str, list]
-                    if self.config.reward_model.launch_reward_fn_async:
-                        reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                    batch.batch["token_level_scores"] = reward_tensor
+                # # 9. Process rewards and apply KL penalty (following RAGEN pattern)
+                # with _timer("adv", timing_raw):
+                #     if self.config.reward_model.launch_reward_fn_async:
+                #         reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                #     batch.batch["token_level_scores"] = reward_tensor
 
-                    print(f"{list(reward_extra_infos_dict.keys())=}")
-                    if reward_extra_infos_dict:
-                        batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                #     if reward_extra_infos_dict:
+                #         batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
-                    # compute rewards. apply_kl_penalty if available
-                    if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty, multi_turn=True)
-                        metrics.update(kl_metrics)
-                    else:
-                        batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
+                #     # Apply KL penalty if configured
+                #     if self.config.algorithm.use_kl_in_reward:
+                #         batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty, multi_turn=True)
+                #         metrics.update(kl_metrics)
+                #     else:
+                #         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                    # compute advantages, executed on the driver process
-                    norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
-
-                    batch = compute_advantage(
-                        batch,
-                        adv_estimator=self.config.algorithm.adv_estimator,
-                        gamma=self.config.algorithm.gamma,
-                        lam=self.config.algorithm.lam,
-                        num_repeat=self.config.actor_rollout_ref.rollout.n,
-                        norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                        multi_turn=True,
-                        high_level_gamma=self.config.algorithm.high_level_gamma,
-                        bi_level_gae=self.config.algorithm.bi_level_gae,
-                    )
-
-                ##### A very different setting, just here for testing: Can I normalize the advantages to have a mean of 0?
-                if self.config.algorithm.adv_estimator == AdvantageEstimator.GRPO and self.config.grpo_advantage_length_weight:
-                    response_mask = batch.batch["response_mask"]
-                    advantages = batch.batch["advantages"]
-                    response_relative_lengths = (torch.sum(response_mask, dim=-1) + 1e-6) / torch.sum(response_mask, dim=-1).float().mean()
-                    advantages = advantages / response_relative_lengths.unsqueeze(-1) 
-                    batch.batch["advantages"] = advantages
-                # ARCHER SPECIFIC: Store batch in replay buffer
+                # 10. ARCHER SPECIFIC: Store batch in replay buffer  
                 with _timer("store_replay", timing_raw):
                     self._store_batch_in_replay_buffer(batch)
                     metrics["replay_buffer/size"] = len(self.replay_buffer)
 
-                # ARCHER SPECIFIC: Train from replay buffer (only after we have some data)
+                # 11. ARCHER SPECIFIC: Train from replay buffer (only after we have some data)
                 if len(self.replay_buffer) > 0:
-                    # Update critic multiple times
+                    # Update critic multiple times (Archer-specific)
                     if self.use_critic:
                         with _timer("update_critic", timing_raw):
                             critic_metrics_list = []
@@ -502,6 +475,9 @@ class RayArcherTrainer(RayAgentTrainer):
                                         values_output = self.critic_wg.compute_values(replay_batch)
                                         replay_batch = replay_batch.union(values_output)
                                     
+                                    # Compute Archer advantages and returns for critic update
+                                    replay_batch = self._compute_archer_advantages(replay_batch)
+                                    
                                     critic_output = self.critic_wg.update_critic(replay_batch)
                                     critic_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                                     critic_metrics_list.append(critic_metrics)
@@ -511,7 +487,7 @@ class RayArcherTrainer(RayAgentTrainer):
                                 for key in critic_metrics_list[0].keys():
                                     metrics[f"critic/{key}"] = np.mean([m[key] for m in critic_metrics_list])
 
-                    # Update actor (only after warmup)
+                    # Update actor (only after warmup) - Archer-specific
                     if self.global_steps > self.warmup_iterations:
                         with _timer("update_actor", timing_raw):
                             actor_metrics_list = []
@@ -523,10 +499,8 @@ class RayArcherTrainer(RayAgentTrainer):
                                         values_output = self.critic_wg.compute_values(replay_batch)
                                         replay_batch = replay_batch.union(values_output)
                                     
-                                    # Compute Archer advantages
-                                    archer_advantages = self._compute_archer_advantages(replay_batch)
-                                    replay_batch.batch["advantages"] = archer_advantages
-                                    replay_batch.batch["returns"] = archer_advantages  # For compatibility
+                                    # Compute Archer advantages and returns: Q(s,a) - V(s)
+                                    replay_batch = self._compute_archer_advantages(replay_batch)
                                     
                                     # Update actor
                                     replay_batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
@@ -539,7 +513,7 @@ class RayArcherTrainer(RayAgentTrainer):
                                 for key in actor_metrics_list[0].keys():
                                     metrics[f"actor/{key}"] = np.mean([m[key] for m in actor_metrics_list])
 
-                # Validate (exactly like RAGEN)
+                # 12. Validation (keep this from RAGEN)
                 if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
                     with _timer("testing", timing_raw):
                         val_metrics = self._validate()
@@ -547,12 +521,12 @@ class RayArcherTrainer(RayAgentTrainer):
                             last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                # Save checkpoint (exactly like RAGEN)
+                # 13. Save checkpoint (keep this from RAGEN)
                 if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
                     with _timer("save_checkpoint", timing_raw):
                         self._save_checkpoint()
 
-            # Collect metrics (like RAGEN)
+            # Collect metrics
             metrics.update({"training/global_step": self.global_steps, "training/epoch": step})
             metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
             metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))

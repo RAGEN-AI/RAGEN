@@ -120,7 +120,7 @@ We implement three progressive normalization strategies to stabilize training:
 -->
 
 ## Environment Setup
-For detailed setup instructions, please check our [documentation](https://ragen-tutorial.readthedocs.io/). Here's a quick start guide:
+For detailed setup instructions, please check our [documentation](https://ragen-doc.readthedocs.io/). Here's a quick start guide:
 
 ```bash
 # Setup environment for RAGEN

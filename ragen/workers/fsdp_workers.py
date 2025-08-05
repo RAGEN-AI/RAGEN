@@ -980,9 +980,11 @@ class CriticWorker(Worker):
         import_external_libs(self.config.model.get("external_lib", None))
 
         # Check if ArCHer is enabled in the config
-        use_archer = self.config.get("use_archer", False) or \
-                    (hasattr(self.config, 'algorithm') and 
-                     getattr(self.config.algorithm, 'adv_estimator', '') == 'archer')
+        use_archer = (self.config.get("use_archer", False) or 
+                     (hasattr(self.config, 'algorithm') and 
+                      getattr(self.config.algorithm, 'adv_estimator', '') == 'archer') or
+                     (hasattr(self.config, 'archer') and 
+                      getattr(self.config.archer, 'enabled', False)))
         
         if use_archer:
             from ragen.workers.critic import ArCherCritic

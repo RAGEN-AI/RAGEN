@@ -269,7 +269,15 @@ class ArCherCritic(DataParallelPPOCritic):
         super().__init__(config=config, critic_module=archer_critic_module, critic_optimizer=critic_optimizer)
         
         # ArCHer-specific configuration
-        self.tau = getattr(config, 'archer_tau', 0.005)  # Soft update rate for target networks
+        # Try multiple config paths for tau parameter
+        tau_sources = [
+            getattr(config, 'archer', {}).get('tau', None),  # config.archer.tau
+            getattr(config, 'archer_tau', None),              # config.archer_tau  
+            getattr(config, 'tau', None),                     # config.tau
+            0.005                                             # default fallback
+        ]
+        self.tau = next((tau for tau in tau_sources if tau is not None), 0.005)
+        
         self.use_target_networks = getattr(config, 'archer_use_target_networks', True)
         
         # Create target networks if enabled

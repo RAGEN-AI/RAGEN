@@ -623,15 +623,30 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                     # compute advantages, executed on the driver process
                     norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
 
-                    # Handle ArCHer separately since it doesn't use traditional GAE advantage computation
+                    # Handle ArCHer separately since it requires critic-actor coordination
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.ARCHER:
-                        # ArCHer: Compute advantages directly as Q(s,π(s)) - V(s)
+                        # ArCHer requires a special training sequence:
+                        # 1. First update critic using reward-based targets
+                        # 2. Then compute fresh Q-V advantages from updated critic for actor
+                        
                         if not self.use_critic:
                             raise ValueError("ArCHer requires a critic to compute Q and V values")
                         
-                        # Check if critic supports ArCHer (has compute_q_and_v_values method)
+                        # For critic update, we need some initial advantages (can use simple reward-based)
+                        # This will be replaced by proper ArCHer target computation in the critic
+                        batch.batch["advantages"] = batch.batch["token_level_rewards"]  # Temporary for critic
+                        batch.batch["returns"] = batch.batch["token_level_rewards"]    # Temporary for critic
+                        
+                        # Update critic FIRST with ArCHer-specific loss
+                        if self.use_critic:
+                            with _timer("update_critic_archer", timing_raw):
+                                critic_output = self.critic_wg.update_critic(batch)
+                            critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
+                            metrics.update(critic_output_metrics)
+                        
+                        # Now compute FRESH advantages from updated critic for actor
                         if hasattr(self.critic_wg, 'compute_q_and_v_values'):
-                            # Get Q and V values from ArCHer Double Critic
+                            # Get Q and V values from UPDATED ArCHer Double Critic
                             qv_data = self.critic_wg.compute_q_and_v_values(batch)
                             advantages, returns = core_algos.compute_archer_advantage_return(
                                 q_values=qv_data.batch["q_values"],
@@ -653,6 +668,9 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                             )
                             batch.batch["advantages"] = advantages
                             batch.batch["returns"] = returns
+                        
+                        # Skip the regular critic update since we already did ArCHer-specific update
+                        archer_critic_updated = True
                     else:
                         # Traditional advantage computation for all other algorithms
                         batch = compute_advantage(
@@ -667,6 +685,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                             bi_level_gae=self.config.algorithm.bi_level_gae,
                             archer_alpha=self.config.get("archer", {}).get("alpha", 0.1),
                         )
+                        archer_critic_updated = False
 
                 ##### A very different setting, just here for testing: Can I normalize the advantages to have a mean of 0?
                 if self.config.algorithm.adv_estimator == AdvantageEstimator.GRPO and self.config.grpo_advantage_length_weight:
@@ -676,8 +695,8 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                     advantages = advantages / response_relative_lengths.unsqueeze(-1) 
                     batch.batch["advantages"] = advantages
 
-                # update critic
-                if self.use_critic:
+                # update critic (skip if ArCHer already updated)
+                if self.use_critic and not archer_critic_updated:
                     with _timer("update_critic", timing_raw):
                         critic_output = self.critic_wg.update_critic(batch)
                     critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])

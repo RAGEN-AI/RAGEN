@@ -979,7 +979,17 @@ class CriticWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from ragen.workers.critic import DataParallelPPOCritic
+        # Check if ArCHer is enabled in the config
+        use_archer = self.config.get("use_archer", False) or \
+                    (hasattr(self.config, 'algorithm') and 
+                     getattr(self.config.algorithm, 'adv_estimator', '') == 'archer')
+        
+        if use_archer:
+            from ragen.workers.critic import ArCherCritic
+            print("Using ArCHer Critic for hierarchical multi-turn RL")
+        else:
+            from ragen.workers.critic import DataParallelPPOCritic
+            print("Using standard DataParallel PPO Critic")
 
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(self.config)
 
@@ -990,7 +1000,11 @@ class CriticWorker(Worker):
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
             log_gpu_memory_usage("After offload critic optimizer during init", logger=logger)
 
-        self.critic = DataParallelPPOCritic(config=self.config, critic_module=self.critic_module, critic_optimizer=self.critic_optimizer)
+        # Initialize the appropriate critic class
+        if use_archer:
+            self.critic = ArCherCritic(config=self.config, critic_module=self.critic_module, critic_optimizer=self.critic_optimizer)
+        else:
+            self.critic = DataParallelPPOCritic(config=self.config, critic_module=self.critic_module, critic_optimizer=self.critic_optimizer)
 
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_manager = FSDPCheckpointManager(
@@ -1058,6 +1072,38 @@ class CriticWorker(Worker):
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
 
         output = output.to("cpu")
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_q_and_v_values(self, data: DataProto):
+        """
+        Compute both Q-values and V-values for ArCHer advantage computation.
+        Only available when using ArCHer critic.
+        """
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.critic_module)
+
+        # Check if the critic supports ArCHer
+        if not hasattr(self.critic, 'compute_q_and_v_values'):
+            raise ValueError("compute_q_and_v_values is only available with ArCHer critic")
+
+        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+
+        # perform forward computation
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            qv_data = self.critic.compute_q_and_v_values(data=data)
+            output = self.ulysses_sharding_manager.postprocess_data(data=qv_data)
+
+        output = output.to("cpu")
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.critic_module)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

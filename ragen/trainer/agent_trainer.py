@@ -133,17 +133,9 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     elif adv_estimator == AdvantageEstimator.ARCHER:
-        advantages, returns = core_algos.compute_archer_advantage_return(
-            token_level_rewards=data.batch["token_level_rewards"],
-            values=data.batch["values"],
-            loss_mask=data.batch["response_mask"],
-            gamma=gamma,
-            lam=lam,
-            high_level_gamma=high_level_gamma,
-            archer_alpha=archer_alpha
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
+        # ArCHer advantage computation should be handled separately in the fit() function
+        # since it requires Q&V values from the critic, not traditional GAE computation
+        raise NotImplementedError("ArCHer advantage computation should be handled in fit() function, not here")
     else:
         raise NotImplementedError
     return data
@@ -629,21 +621,52 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                     # compute advantages, executed on the driver process
-
                     norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
 
-                    batch = compute_advantage(
-                        batch,
-                        adv_estimator=self.config.algorithm.adv_estimator,
-                        gamma=self.config.algorithm.gamma,
-                        lam=self.config.algorithm.lam,
-                        num_repeat=self.config.actor_rollout_ref.rollout.n,
-                        norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                        multi_turn=True,
-                        high_level_gamma=self.config.algorithm.high_level_gamma,
-                        bi_level_gae=self.config.algorithm.bi_level_gae,
-                        archer_alpha=self.config.get("archer", {}).get("alpha", 0.1),
-                    )
+                    # Handle ArCHer separately since it doesn't use traditional GAE advantage computation
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.ARCHER:
+                        # ArCHer: Compute advantages directly as Q(s,π(s)) - V(s)
+                        if not self.use_critic:
+                            raise ValueError("ArCHer requires a critic to compute Q and V values")
+                        
+                        # Check if critic supports ArCHer (has compute_q_and_v_values method)
+                        if hasattr(self.critic_wg, 'compute_q_and_v_values'):
+                            # Get Q and V values from ArCHer Double Critic
+                            qv_data = self.critic_wg.compute_q_and_v_values(batch)
+                            advantages, returns = core_algos.compute_archer_advantage_return(
+                                q_values=qv_data.batch["q_values"],
+                                v_values=qv_data.batch["v_values"],
+                                loss_mask=batch.batch["response_mask"],
+                                gamma=self.config.algorithm.gamma
+                            )
+                            batch.batch["advantages"] = advantages
+                            batch.batch["returns"] = returns
+                        else:
+                            # Fallback: Use regular critic values (suboptimal but functional)
+                            print("WARNING: Critic doesn't support ArCHer. Using V-values as both Q and V (suboptimal)")
+                            v_values = batch.batch["values"]
+                            advantages, returns = core_algos.compute_archer_advantage_return(
+                                q_values=v_values,  # Suboptimal fallback
+                                v_values=v_values,
+                                loss_mask=batch.batch["response_mask"],
+                                gamma=self.config.algorithm.gamma
+                            )
+                            batch.batch["advantages"] = advantages
+                            batch.batch["returns"] = returns
+                    else:
+                        # Traditional advantage computation for all other algorithms
+                        batch = compute_advantage(
+                            batch,
+                            adv_estimator=self.config.algorithm.adv_estimator,
+                            gamma=self.config.algorithm.gamma,
+                            lam=self.config.algorithm.lam,
+                            num_repeat=self.config.actor_rollout_ref.rollout.n,
+                            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                            multi_turn=True,
+                            high_level_gamma=self.config.algorithm.high_level_gamma,
+                            bi_level_gae=self.config.algorithm.bi_level_gae,
+                            archer_alpha=self.config.get("archer", {}).get("alpha", 0.1),
+                        )
 
                 ##### A very different setting, just here for testing: Can I normalize the advantages to have a mean of 0?
                 if self.config.algorithm.adv_estimator == AdvantageEstimator.GRPO and self.config.grpo_advantage_length_weight:

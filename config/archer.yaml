@@ -11,7 +11,7 @@ trainer:
 # Use ArCHer advantage estimator
 algorithm:
   adv_estimator: archer
-  gamma: 1.0
+  gamma: 0.95  # Discount factor (matching ArCHer original)
   lam: 1.0
   high_level_gamma: 0.95  # High-level discount factor for turn-level rewards
   
@@ -20,10 +20,22 @@ agent_proxy:
   max_turn: 10  # Allow more turns for ArCHer to demonstrate hierarchical learning
   use_turn_scores: True  # Important for ArCHer's hierarchical structure
   
-# ArCHer parameters (can be adjusted)
+# ArCHer parameters (matching original implementation)
 archer:
   alpha: 0.1  # Mixing coefficient between high-level and low-level value functions
+  tau: 0.1    # Soft update parameter for target networks (ArCHer original uses 0.1)
+  enabled: true  # Flag to enable ArCHer critic
   
+# ArCHer-specific training configuration
+actor_rollout_ref:
+  actor:
+    ppo_epochs: 3  # Actor epochs (matching ArCHer original)
+    
+critic:
+  ppo_epochs: 3  # Critic epochs (reduced from ArCHer's 50 for faster testing)
+  optim:
+    lr: 1e-5  # Critic learning rate (matching ArCHer original)
+    
 # Use environments that benefit from hierarchical reasoning
 es_manager:
   train:

@@ -14,6 +14,11 @@ from ragen.env import REGISTERED_ENVS, REGISTERED_ENV_CONFIGS
 from ragen.utils import register_resolvers
 register_resolvers()
 
+import multiprocessing
+from functools import partial
+
+use_parallel = True
+
 @dataclass
 class EnvStatus:
     """Status of an environment"""
@@ -42,6 +47,7 @@ class EnvStateManager:
         else:
             self.base_seed = None
         self.seed_counter = 0
+        self.n_cpu = multiprocessing.cpu_count()
         self._init_envs()
         self.rollout_cache = None
 
@@ -57,7 +63,33 @@ class EnvStateManager:
         """
         assert sum(self.config.env_configs.n_groups) == self.env_groups, f"Sum of n_groups must equal env_groups. Got sum({self.config.env_configs.n_groups}) != {self.env_groups}"
         assert len(self.config.env_configs.tags) == len(self.config.env_configs.n_groups), f"Number of tags must equal number of n_groups. Got {len(self.config.env_configs.tags)} != {len(self.config.env_configs.n_groups)}"
+        
+        global use_parallel
+        if use_parallel:
+            env_configs = self.config.env_configs
+            done_groups = 0
+            for tag, n_group in zip(env_configs.tags, env_configs.n_groups):
+                func = partial(self._init_one_env, sys_config = self.sys_config, group_size = self.group_size, tag = tag)
+                with multiprocessing.Pool(self.n_cpu // 4) as pool: # Only use 1/4 of the cores to avoid conflicts
+                    self.envs = pool.map(func, range(done_groups * self.group_size, (done_groups + n_group) * self.group_size))
+                done_groups += n_group
+            return
+
         self.envs = self._init_env_instances(self.config)
+    
+    @staticmethod
+    def _init_one_env(env_id, sys_config, group_size, tag):
+        cfg_template = sys_config.custom_envs[tag]
+        env_class = cfg_template.env_type
+        max_actions_per_traj = cfg_template.max_actions_per_traj
+        if cfg_template.env_config is None:
+            env_config = REGISTERED_ENV_CONFIGS[env_class]()
+        else:
+            env_config = REGISTERED_ENV_CONFIGS[env_class](**cfg_template.env_config)
+        env_obj = REGISTERED_ENVS[env_class](env_config)
+        entry = {'tag': tag, 'group_id': env_id // group_size, 'env_id': env_id, 
+                'env': env_obj, 'config': env_config, 'status': EnvStatus(), 'max_actions_per_traj': max_actions_per_traj}
+        return entry
 
     def _init_env_instances(self, config):
         env_list = []
@@ -157,6 +189,26 @@ class EnvStateManager:
             # history = [content for content in history[:-1] if content['actions']] + [history[-1]]
             return status, history
 
+        global use_parallel
+        if use_parallel and len(all_env_inputs) > 120:
+            parallel_env_inputs = [{
+                **env_input,
+                'env': self.envs[env_input['env_id']],
+                'rollout_cache_single': self.rollout_cache[env_input['env_id']]
+            } for env_input in all_env_inputs]
+
+            func = partial(self._step_env, sys_config=self.sys_config)
+            with multiprocessing.Pool(self.n_cpu // 8) as pool:
+                results = pool.map(func, parallel_env_inputs)
+
+            env_outputs = []
+            for turn_done, env, rollout_cache in results:
+                self.envs[env['env_id']] = env
+                self.rollout_cache[env['env_id']] = rollout_cache
+                if not turn_done:
+                    env_outputs.append(rollout_cache)
+            return env_outputs
+
         envs = self.envs
         env_outputs = []
 
@@ -183,6 +235,100 @@ class EnvStateManager:
                 env_outputs.append(self.rollout_cache[env_id])
 
         return env_outputs
+
+    @staticmethod
+    def _step_env(env_input, sys_config):
+        def _extract_map_valid_actions(entry: Dict, actions: List[str]):
+            """extract valid actions from the action lookup table (if exists)"""
+            mapped_actions = []
+            action_lookup = getattr(entry['env'].config, 'action_lookup', None)
+            if action_lookup is None:
+                mapped_actions = actions
+            else: # the envs have pre-defined action lookup
+                rev_action_lookup = {v.lower(): k for k, v in action_lookup.items()}
+                actions = [action.lower() for action in actions]
+                mapped_actions = [rev_action_lookup[action] for action in actions if action in rev_action_lookup]
+            return mapped_actions
+        
+        def _execute_actions(env, actions):
+            acc_reward, turn_info, turn_done = 0, {}, False
+            executed_actions = []
+            for action in actions:
+                _, reward, done, info = env.step(action)
+                acc_reward += reward
+                turn_info.update(info) # NOTE: currently use last info for multi-action
+                executed_actions.append(action)
+                if done:
+                    turn_done = True
+                    break
+            
+            return acc_reward, turn_info, turn_done, executed_actions
+
+        def _log_env_state(status, history, cur_obs, max_actions_per_traj, executed_actions, all_actions, acc_reward, turn_done, turn_info, env_input):
+            def _handle_mm_state(state: Union[str, np.ndarray, list[np.ndarray]]):
+                """Handle the state from the environment
+                """
+                if isinstance(state, str): # text state
+                    return state
+                elif isinstance(state, np.ndarray): # when env state is a single image, convert it to a list to unify output format
+                    state = [state]
+                results = [PIL.Image.fromarray(_state, mode='RGB') for _state in state]
+                return results
+
+            def _update_cache_history(history: List[Dict], next_state, actions_left, num_actions_info: Optional[Dict] = None):
+                """
+                Update last step info and append state to history
+                """
+                if num_actions_info is not None: # update last step info
+                    assert len(history), "History should not be empty"
+                    history[-1].update(num_actions_info)
+                
+                entry = {} # append state to history
+                if isinstance(next_state, str): # text state
+                    entry['state'] = next_state
+                else: # multimodal state
+                    entry['state'] = "<images>" * len(next_state)
+                    entry['images'] = next_state
+                entry['actions_left'] = actions_left
+                history.append(entry)
+                return history
+            
+            obs = _handle_mm_state(cur_obs)
+            status.num_actions += len(executed_actions)
+            status.rewards.append(acc_reward) # NOTE use turn-wise acc_reward
+            actions_left = max_actions_per_traj - status.num_actions
+            if turn_done:
+                status.terminated = True # TODO check terminated definition in gymnasium
+                status.truncated = not turn_info.get('success', False)
+            history = _update_cache_history(history, next_state=obs, actions_left=actions_left, num_actions_info={
+                'actions': executed_actions, 'reward': acc_reward, 'info': turn_info,
+                'llm_response': env_input['llm_response'], 'llm_raw_response': env_input['llm_raw_response']
+            })
+            # filter out invalid actions
+            # history = [content for content in history[:-1] if content['actions']] + [history[-1]]
+            return status, history
+
+        acc_reward, turn_info, turn_done = 0, {}, False
+        entry = env_input['env']
+        env_id, env = entry['env_id'], entry['env']
+        actions_left_before = entry['max_actions_per_traj'] - entry['status'].num_actions
+
+        # execute actions in envs
+        valid_actions = _extract_map_valid_actions(entry, env_input['actions'])
+        rollout_cache_single = env_input['rollout_cache_single']
+        acc_reward, turn_info, turn_done, executed_actions = _execute_actions(env, valid_actions[:actions_left_before])
+        if len(valid_actions) != len(env_input['actions']) or not valid_actions:
+            rollout_cache_single["penalty"] += sys_config.es_manager.format_penalty
+            
+        status, history = _log_env_state(entry['status'], rollout_cache_single['history'], entry['env'].render(), entry['max_actions_per_traj'], executed_actions, valid_actions, acc_reward, turn_done, turn_info, env_input)
+        entry['status'] = status
+        if entry['status'].num_actions >= entry['max_actions_per_traj'] and not turn_done:
+            entry['status'].truncated = True
+            entry['status'].terminated = True
+            turn_done = True
+        rollout_cache_single['history'] = history
+        
+        return turn_done, entry, rollout_cache_single
 
     def get_rollout_states(self):
         """Get the final output for all environment"""
@@ -303,17 +449,11 @@ def main(config):
     print("\nRunning step for training environments...")
     all_env_inputs = [
         {
-            "env_id": 0,
+            "env_id": i,
             "llm_raw_response": "Go down",
             "llm_response": "Go down",
             "actions": ["down"]
-        },
-        {
-            "env_id": 3,
-            "llm_raw_response": "Go down",
-            "llm_response": "Go down",
-            "actions": ["down"]
-        }
+        } for i in range(128)
     ]
     env_outputs = es_manager.step(all_env_inputs)
     print(f"Active environments after step: {len(env_outputs)}")

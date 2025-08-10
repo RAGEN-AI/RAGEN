@@ -277,7 +277,7 @@ class ContextManager:
 
         inputs = self.tokenizer(llm_input_texts, return_tensors="pt", padding=True, padding_side="left", truncation=False) # do not truncate here. Process later at TODO
         input_ids, attention_mask = inputs.input_ids, inputs.attention_mask
-        position_ids = attention_mask.cumsum(dim=-1)
+        position_ids = (attention_mask.cumsum(dim=1) - 1).clamp(min=0)
         if prepare_for_update:
             scores = [[i.get('reward', 0.0) for i in env_output['history']] for env_output in env_outputs]
             score_tensor, loss_mask, response_mask = get_masks_and_scores(input_ids, self.tokenizer, scores, use_turn_scores=self.config.agent_proxy.use_turn_scores, enable_response_mask=self.config.enable_response_mask)

@@ -1,6 +1,6 @@
 # Manual Scripts to Setup Environment
 ```bash
-conda create -n ragen python=3.9 -y
+conda create -n ragen python=3.12 -y
 conda activate ragen
 
 

@@ -9,7 +9,7 @@ import os
 from typing import List, Dict
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from .base_llm import ConcurrentLLM
-# import time
+import time
 
 
 class VllmWrapperWg: # Thi is a developing class for eval and test
@@ -26,7 +26,7 @@ class VllmWrapperWg: # Thi is a developing class for eval and test
             enforce_eager=ro_config.enforce_eager,
             gpu_memory_utilization=ro_config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
-            # disable_mm_preprocessor_cache=True,
+            disable_mm_preprocessor_cache=True,
             skip_tokenizer_init=False,
             max_model_len=ro_config.max_model_len,
             disable_log_stats=ro_config.disable_log_stats,
@@ -167,19 +167,28 @@ def main(config):
 	actor_wg = VllmWrapperWg(config, tokenizer)
 	proxy = LLMAgentProxy(config, actor_wg, tokenizer)
 	import time
-	for _ in range(3):
-		start_time = time.time()
-		rollouts = proxy.rollout(DataProto(batch=None, non_tensor_batch=None, meta_info={'eos_token_id': 151645, 'pad_token_id': 151643, 'recompute_log_prob': False, 'do_sample':config.actor_rollout_ref.rollout.do_sample, 'validate': True}), val=True)
-		end_time = time.time()
-		print(f'rollout time: {end_time - start_time} seconds')
-		# print rollout rewards from the rm_scores
-		rm_scores = rollouts.batch["rm_scores"]
-		metrics = rollouts.meta_info["metrics"]
-		avg_reward = rm_scores.sum(-1).mean().item()
-		print(f'rollout rewards: {avg_reward}')
-		print(f'metrics:')
-		for k, v in metrics.items():
-			print(f'{k}: {v}')
+
+	start_time = time.time()
+	rollouts = proxy.rollout(DataProto(batch=None, non_tensor_batch=None, meta_info={'eos_token_id': 151645, 'pad_token_id': 151643, 'recompute_log_prob': False, 'do_sample':config.actor_rollout_ref.rollout.do_sample, 'validate': True}), val=True)
+	end_time = time.time()
+	print(f'rollout time: {end_time - start_time} seconds')
+	# print rollout rewards from the rm_scores
+	rm_scores = rollouts.batch["rm_scores"]
+	metrics = rollouts.meta_info["metrics"]
+	avg_reward = rm_scores.sum(-1).mean().item()
+	print(f'rollout rewards: {avg_reward}')
+	print(f'metrics:')
+	for k, v in metrics.items():
+		print(f'{k}: {v}')
+
+	# save to config.trainer.local_log_dir/config.trainer.experiment_name + _ + timestamp
+	timestamp = time.strftime("%Y%m%d_%H%M%S")
+	save_dir = os.path.join(config.trainer.local_log_dir, config.trainer.experiment_name + "_" + timestamp, "val_rollouts.pkl")
+	os.makedirs(os.path.dirname(save_dir), exist_ok=True)
+	# save the data
+	rollouts.save_to_disk(save_dir)
+	# print save to ..
+	print(f'save validation results to {save_dir}. To visualize, run: python scripts/visualize.py --rollout_path {config.trainer.local_log_dir}')
 
 # @hydra.main(version_base=None, config_path="../../config", config_name="evaluate_api_llm")
 # def main(config):

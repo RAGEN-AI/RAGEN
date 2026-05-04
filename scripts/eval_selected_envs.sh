@@ -43,9 +43,10 @@ normalize_env_name() {
     bandit) echo "bandit" ;;
     countdown) echo "countdown" ;;
     metamathqa|meta_math_qa|meta_mathqa) echo "metamathqa" ;;
+    lightsout|lights_out|lights-out) echo "lightsout" ;;
     *)
       echo "Unknown env: $1" >&2
-      echo "Available envs: sokoban frozenlake deepcoder bandit countdown metamathqa" >&2
+      echo "Available envs: sokoban frozenlake deepcoder bandit countdown metamathqa lightsout" >&2
       exit 2
       ;;
   esac
@@ -58,6 +59,7 @@ declare -A CONFIG_MAP=(
   [bandit]="_1_bandit"
   [countdown]="_4_countdown"
   [metamathqa]="_5_metamathqa"
+  [lightsout]="_11_lights_out"
 )
 
 MODEL_PATH=""

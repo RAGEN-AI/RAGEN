@@ -382,3 +382,22 @@ custom_envs:
       scramble_depth: 1
       max_steps: 20
       render_mode: "text"
+
+  LightsOut:
+    env_type: lights_out
+    max_actions_per_traj: 8
+    env_instruction: |
+      You are solving the Lights Out puzzle. The board is a square grid of lights.
+      A 1 means the light is on and a 0 means the light is off.
+      Pressing a cell toggles that cell and its orthogonal neighbors: up, down, left, and right.
+      Your goal is to turn every light off.
+      Coordinates are zero-indexed. Respond with one action such as <answer>toggle 0 1</answer>.
+    max_tokens: 128
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      size: 3
+      scramble_depth: 4
+      max_steps: 8
+      shaped_reward: true
+      success_reward: 1.0

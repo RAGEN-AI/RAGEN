@@ -1,0 +1,25 @@
+defaults:
+  - base
+
+trainer:
+  experiment_name: lights-out
+
+actor_rollout_ref:
+  rollout:
+    response_length: 256
+    val_kwargs:
+      do_sample: True
+      temperature: 0.5
+
+agent_proxy:
+  max_turn: 8
+  max_actions_per_turn: 1
+  max_context_window: 5
+
+es_manager:
+  train:
+    env_configs:
+      tags: ["LightsOut"]
+  val:
+    env_configs:
+      tags: ["LightsOut"]

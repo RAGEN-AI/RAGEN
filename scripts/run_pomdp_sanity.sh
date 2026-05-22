@@ -3,8 +3,12 @@
 # POMDP Sokoban — sanity / learning-signal validation on vast.ai (1× GPU)
 #
 # Goal: confirm reward curve rises within 30 steps.
-# Model: Qwen2.5-0.5B-Instruct (fits in ~2 GB, fast iteration)
-# GPU:   1× RTX 4090 (24 GB) recommended
+#
+# GPU presets (override via env vars):
+#   A100 80GB (default) : MODEL=3B, env_groups=4, group_size=32, gpu_mem=0.70
+#   RTX 4090   24GB     : MODEL=Qwen/Qwen2.5-0.5B-Instruct
+#                         ENV_GROUPS=2 GROUP_SIZE=16 PPO_MINI_BATCH=8
+#                         MICRO_BATCH=2 GPU_MEM_UTIL=0.55
 #
 # Usage:
 #   conda activate ragen
@@ -14,24 +18,25 @@
 set -eo pipefail
 
 # ── tunable knobs ─────────────────────────────────────────────────────────────
-MODEL="${MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
-EXP_NAME="${EXP_NAME:-pomdp_sanity_0.5b}"
+# A100 80GB defaults — override at call site for smaller GPUs
+MODEL="${MODEL:-Qwen/Qwen2.5-3B-Instruct}"
+EXP_NAME="${EXP_NAME:-pomdp_sanity_3b_a100}"
 GPU_ID="${GPU_ID:-0}"
 
-# Batch sizing for 1 GPU
-# train_batch = env_groups × group_size = 2 × 16 = 32
-# constraint:  env_groups × group_size × filter_ratio ≥ ppo_mini_batch_size
-#              2 × 16 × 1.0 = 32 ≥ 8  ✓
-ENV_GROUPS=2
-GROUP_SIZE=16
-PPO_MINI_BATCH=8
-MICRO_BATCH=2
+# Batch sizing for A100 80GB
+# train_batch = env_groups × group_size = 4 × 32 = 128
+# constraint:  4 × 32 × 1.0 = 128 ≥ ppo_mini_batch(32)  ✓
+ENV_GROUPS="${ENV_GROUPS:-4}"
+GROUP_SIZE="${GROUP_SIZE:-32}"
+PPO_MINI_BATCH="${PPO_MINI_BATCH:-32}"
+MICRO_BATCH="${MICRO_BATCH:-8}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.70}"
 
 # Turns per episode — must match max_actions_per_traj in envs.yaml
 MAX_TURN=50
 
-# Total training steps (20 = quick signal check; raise to 200 for real run)
-TOTAL_STEPS=30
+# Total training steps (30 = quick signal check; raise to 200 for real run)
+TOTAL_STEPS="${TOTAL_STEPS:-30}"
 # ──────────────────────────────────────────────────────────────────────────────
 
 export CUDA_VISIBLE_DEVICES="$GPU_ID"
@@ -40,9 +45,12 @@ RAY_TMPDIR="/tmp/ray_pomdp_$$"
 mkdir -p "$RAY_TMPDIR"
 export RAY_TMPDIR
 
-echo "Model : $MODEL"
-echo "Exp   : $EXP_NAME"
-echo "GPU   : $GPU_ID"
+echo "Model        : $MODEL"
+echo "Exp          : $EXP_NAME"
+echo "GPU          : $GPU_ID"
+echo "Batch        : env_groups=$ENV_GROUPS × group_size=$GROUP_SIZE = $((ENV_GROUPS * GROUP_SIZE))"
+echo "ppo_mini     : $PPO_MINI_BATCH  micro: $MICRO_BATCH"
+echo "gpu_mem_util : $GPU_MEM_UTIL"
 echo ""
 
 python train.py \
@@ -59,10 +67,10 @@ python train.py \
     es_manager.train.group_size=$GROUP_SIZE \
     es_manager.train.env_configs.tags='["POMDPSokoban"]' \
     es_manager.train.env_configs.n_groups="[$ENV_GROUPS]" \
-    es_manager.val.env_groups=16 \
+    es_manager.val.env_groups=32 \
     es_manager.val.group_size=1 \
     es_manager.val.env_configs.tags='["POMDPSokoban"]' \
-    es_manager.val.env_configs.n_groups="[16]" \
+    es_manager.val.env_configs.n_groups="[32]" \
     \
     ppo_mini_batch_size=$PPO_MINI_BATCH \
     micro_batch_size_per_gpu=$MICRO_BATCH \
@@ -72,9 +80,9 @@ python train.py \
     agent_proxy.context_window_mode=full \
     agent_proxy.max_actions_per_turn=1 \
     \
-    actor_rollout_ref.rollout.max_model_len=6000 \
+    actor_rollout_ref.rollout.max_model_len=8192 \
     actor_rollout_ref.rollout.response_length=512 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=$GPU_MEM_UTIL \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.enforce_eager=True \
     \

@@ -27,6 +27,10 @@ class SokobanEnvConfig:
     # Penalty added when the action has no effect (player position unchanged).
     # Discourages repeating invalid actions. E.g. -0.3 makes no-ops cost 4x a normal step.
     no_op_penalty: float = 0.0
+    # Partial observation (POMDP mode): agent sees only a (2*window+1)^2 patch around itself.
+    # window=1 → 3×3 view. Full board position is still appended so the agent can build a map.
+    partial_obs: bool = False
+    partial_obs_window: int = 1
 
     def __post_init__(self):
         if self.dim_x is not None and self.dim_y is not None:

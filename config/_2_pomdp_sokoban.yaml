@@ -1,0 +1,9 @@
+defaults:
+  - base
+
+hydra:
+  searchpath:
+    - pkg://verl.trainer.config
+
+trainer:
+  experiment_name: pomdp-sokoban-main

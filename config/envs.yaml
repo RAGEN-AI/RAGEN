@@ -383,6 +383,80 @@ custom_envs:
       max_steps: 20
       render_mode: "text"
 
+  # ── POMDP Sokoban variants (partial observation, memory experiments) ──────────
+  # Agent sees only a 3×3 window around itself; must build a mental map in <think>.
+  # Compare with full-context / sliding-window / MEM1-style truncation strategies.
+
+  POMDPSokoban:
+    env_type: sokoban
+    max_actions_per_traj: 50
+    env_instruction: |
+      You are navigating a Sokoban board. You can only see a 3×3 area around you.
+      Goal: push all boxes ( X ) onto targets ( O ). You are P.
+      Symbols: # =wall, _ =empty, O =target, X =box, √ =box on target, P =you.
+
+      MEMORY RULE: previous observations are discarded — only your <think> block
+      carries forward. Use it to maintain a running map of the 5×5 board.
+
+      In <think>, keep:
+        MAP: a 5×5 grid using the same symbols above, ? for unseen cells.
+             Update it each turn by filling in the 3×3 patch you currently see.
+             Overwrite box positions when a box moves.
+        PLAN: one sentence on what you intend to do next.
+
+      After <think>, output exactly ONE action:
+      <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+    max_tokens: 512
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      dim_x: 5
+      dim_y: 5
+      num_boxes: 1
+      max_steps: 150
+      search_depth: 100
+      partial_obs: true
+      partial_obs_window: 1
+      ignore_gym_reward: true
+      success_reward: 1.0
+      distance_reward_coeff: 0.3
+      no_op_penalty: -0.01
+
+  POMDPSokobanHard:
+    env_type: sokoban
+    max_actions_per_traj: 80
+    env_instruction: |
+      You are navigating a Sokoban board. You can only see a 3×3 area around you.
+      Goal: push all boxes ( X ) onto targets ( O ). You are P.
+      Symbols: # =wall, _ =empty, O =target, X =box, √ =box on target, P =you.
+
+      MEMORY RULE: previous observations are discarded — only your <think> block
+      carries forward. Use it to maintain a running map of the 6×6 board.
+
+      In <think>, keep:
+        MAP: a 6×6 grid using the same symbols above, ? for unseen cells.
+             Update it each turn by filling in the 3×3 patch you currently see.
+             Overwrite box positions when a box moves.
+        PLAN: one sentence on what you intend to do next.
+
+      After <think>, output exactly ONE action:
+      <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+    max_tokens: 512
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      dim_x: 6
+      dim_y: 6
+      num_boxes: 2
+      max_steps: 200
+      search_depth: 300
+      partial_obs: true
+      partial_obs_window: 1
+      ignore_gym_reward: true
+      success_reward: 1.0
+      distance_reward_coeff: 0.1
+      no_op_penalty: -0.01
+
   LightsOut:
     env_type: lights_out
     max_actions_per_traj: 8

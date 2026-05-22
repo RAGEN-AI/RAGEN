@@ -121,6 +121,8 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         raise ValueError(f"Invalid mode: {render_mode}")
 
     def _render_text(self, observation_format: str) -> str:
+        if self.config.partial_obs:
+            return self._render_partial_obs()
         if observation_format == 'grid':
             room = np.where((self.room_state == 5) & (self.room_fixed == 2), 6, self.room_state)
             return '\n'.join(''.join(self.GRID_LOOKUP.get(cell, "?") for cell in row) for row in room.tolist())
@@ -131,6 +133,29 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             entity_coords = collect_entity_coordinates(self.room_state, self.room_fixed)
             return "Coordinates: \n" + format_coordinate_render(entity_coords, self.dim_room) + "\n" + "Grid Map: \n" + self._render_text('grid')
         raise ValueError(f"Invalid observation_format: {observation_format}")
+
+    def _render_partial_obs(self) -> str:
+        """Render a (2w+1)×(2w+1) patch centred on the player, plus absolute position."""
+        w = self.config.partial_obs_window
+        r, c = int(self.player_position[0]), int(self.player_position[1])
+        H, W = self.dim_room
+        # Overlay player-on-target marker (value 6) before slicing
+        room = np.where((self.room_state == 5) & (self.room_fixed == 2), 6, self.room_state)
+        rows = []
+        for dr in range(-w, w + 1):
+            row_cells = []
+            for dc in range(-w, w + 1):
+                nr, nc = r + dr, c + dc
+                cell = int(room[nr, nc]) if (0 <= nr < H and 0 <= nc < W) else 0
+                row_cells.append(self.GRID_LOOKUP.get(cell, " ? "))
+            rows.append(''.join(row_cells))
+        grid_str = '\n'.join(rows)
+        footer = (
+            f"Position: ({r}, {c}) | "
+            f"Step: {self.num_env_steps} | "
+            f"Boxes on target: {self.boxes_on_target}/{self.num_boxes}"
+        )
+        return f"{grid_str}\n{footer}"
     
     def get_all_actions(self):
         return list([k for k in self.ACTION_LOOKUP.keys()])

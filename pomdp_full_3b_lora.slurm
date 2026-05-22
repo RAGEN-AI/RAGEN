@@ -60,6 +60,7 @@ EXP_NAME="pomdp_full_lora8_3b_h100"
     actor_rollout_ref.rollout.rollout_filter_value=0.40 \
     actor_rollout_ref.actor.entropy_coeff=0.01 \
     actor_rollout_ref.rollout.max_model_len=12288 \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.response_length=256 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.75 \
     actor_rollout_ref.actor.use_kl_loss=True \

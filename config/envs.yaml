@@ -415,6 +415,7 @@ custom_envs:
       num_boxes: 1
       max_steps: 150
       search_depth: 100
+      min_solution_steps: null  # null=no filter; set to [1,3] via CLI for easy curriculum
       partial_obs: true
       partial_obs_window: 1
       ignore_gym_reward: true
@@ -450,6 +451,7 @@ custom_envs:
       num_boxes: 2
       max_steps: 200
       search_depth: 300
+      min_solution_steps: null
       partial_obs: true
       partial_obs_window: 1
       ignore_gym_reward: true

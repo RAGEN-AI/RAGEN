@@ -7,3 +7,18 @@ hydra:
 
 trainer:
   experiment_name: pomdp-sokoban-main
+
+agent_proxy:
+  max_turn: 30          # 30 steps/episode; full context peaks at ~7k tokens on 5×5
+  max_actions_per_turn: 1
+
+es_manager:
+  train:
+    env_configs:
+      tags: ["POMDPSokoban"]
+      n_groups: [8]
+  val:
+    env_groups: 32      # 512 × 30 steps is too expensive; 32 is enough
+    env_configs:
+      tags: ["POMDPSokoban"]
+      n_groups: [32]

@@ -1459,8 +1459,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                 rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                 if rollout_data_dir:
                     with marked_timer("dump_rollout_generations", timing_raw):
-                        print(batch.batch.keys())
-                        inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+                        inputs = self.tokenizer.batch_decode(batch.batch["input_ids"], skip_special_tokens=True)
                         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                         scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
                         self._dump_generations(

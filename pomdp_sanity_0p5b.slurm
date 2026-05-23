@@ -49,7 +49,7 @@ EXP_NAME="pomdp_sanity_0p5b_h100"
     --config-name _2_pomdp_sokoban \
     model_path=Qwen/Qwen2.5-0.5B-Instruct \
     trainer.n_gpus_per_node=1 \
-    micro_batch_size_per_gpu=4 \
+    micro_batch_size_per_gpu=1 \
     ppo_mini_batch_size=64 \
     es_manager.train.group_size=128 \
     es_manager.format_penalty=-1 \

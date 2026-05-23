@@ -74,5 +74,6 @@ EXP_NAME="pomdp_nomem_lora8_3b_h100"
     agent_proxy.context_window_mode=single_turn \
     agent_proxy.max_context_window=1 \
     trainer.experiment_name="${EXP_NAME}" \
+    "trainer.rollout_data_dir=${CKPT_ROOT}/traj/${EXP_NAME}" \
     "trainer.default_local_dir=${CKPT_ROOT}/checkpoints/\${trainer.project_name}/\${trainer.experiment_name}" \
     > "/home/eiu4164/projects/RAGEN/logs/${EXP_NAME}.${SLURM_JOB_ID}.log" 2>&1

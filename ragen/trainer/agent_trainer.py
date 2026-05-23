@@ -1465,6 +1465,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                         self._dump_generations(
                             inputs=inputs,
                             outputs=outputs,
+                            gts=[""] * len(inputs),
                             scores=scores,
                             reward_extra_infos_dict=reward_extra_infos_dict,
                             dump_path=rollout_data_dir,

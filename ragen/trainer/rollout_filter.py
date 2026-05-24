@@ -456,9 +456,18 @@ class RewardRolloutFilter(RolloutFilter):
         metrics["rollout/_selected_group_ids"] = group_ids_for_metrics[top_groups].detach().cpu()
 
         if self.strategy == "top_p" and self.config.value >= 1 and self.config.include_zero:
-            # Attach reward std to batch even if not filtering
+            # Attach reward std to batch even if not filtering.
             reward_std_per_sample = in_group_std.unsqueeze(1).expand(-1, group_size).reshape(-1)
-            batch.batch["reward_std"] = reward_std_per_sample
+            if has_episode_ids:
+                # Expand episode-level std to turn-level.
+                episode_id_to_idx = {eid: idx for idx, eid in enumerate(unique_episodes)}
+                turn_ep_indices = torch.tensor(
+                    [episode_id_to_idx[eid] for eid in episode_ids],
+                    dtype=torch.long, device=reward_std_per_sample.device
+                )
+                batch.batch["reward_std"] = reward_std_per_sample[turn_ep_indices]
+            else:
+                batch.batch["reward_std"] = reward_std_per_sample
             return batch, metrics
 
         if has_episode_ids:
@@ -481,19 +490,21 @@ class RewardRolloutFilter(RolloutFilter):
 
         batch = self._apply_mask(batch, mask)
 
-        # Re-compute reward std for kept samples to ensure alignment
-        # Note: The actor will receive the filtered batch, so we need to attach the info here.
-        # Ideally we want the ORIGINAL group std, not the filtered one (which might be 0 if single sample kept).
-        # We broadcast the original in_group_std to the original batch size, then apply the mask.
+        # Re-compute reward std for kept samples to ensure alignment.
+        # reward_std_per_sample is episode-level: shape [num_episodes].
         reward_std_per_sample = in_group_std.unsqueeze(1).expand(-1, group_size).reshape(-1)
-        
-        # Apply the same mask to the reward_std tensor
+
         if has_episode_ids:
-             # Mask is already boolean of shape (batch_size,)
-             reward_std_filtered = reward_std_per_sample[mask]
+            # mask is turn-level [num_turns]; reward_std_per_sample is episode-level [num_episodes].
+            # Expand reward_std to turn-level by mapping each turn's episode_id to its episode index.
+            episode_id_to_idx = {eid: idx for idx, eid in enumerate(unique_episodes)}
+            turn_ep_indices = torch.tensor(
+                [episode_id_to_idx[eid] for eid in episode_ids],
+                dtype=torch.long, device=reward_std_per_sample.device
+            )
+            reward_std_filtered = reward_std_per_sample[turn_ep_indices][mask]
         else:
-             # Mask is boolean of shape (batch_size,)
-             reward_std_filtered = reward_std_per_sample[mask]
+            reward_std_filtered = reward_std_per_sample[mask]
         
         batch.batch["reward_std"] = reward_std_filtered
 

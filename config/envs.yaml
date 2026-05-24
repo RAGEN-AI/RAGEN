@@ -406,6 +406,39 @@ custom_envs:
 
       After <think>, output exactly ONE action:
       <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+
+      KEY RULE: Position (r,c) means your 3×3 view covers MAP rows [r-1,r,r+1] and cols [c-1,c,c+1].
+      All other MAP cells stay ? until you visit them. Cells you saw before stay filled even when out of view.
+
+      EXAMPLE — study how the MAP is built and updated across turns:
+
+      Turn 1 | Position: (2,3)
+      State:  #  #  #
+              _  P  _
+              _  X  _
+      <think>
+      MAP:
+      ? # # # ?
+      ? _ P _ ?
+      ? _ X _ ?
+      ? ? ? ? ?
+      ? ? ? ? ?
+      PLAN: X visible below at (3,3). Push it down to explore lower rows.
+      </think><answer>Down</answer>
+
+      Turn 2 | Position: (3,3)
+      State:  _  _  _
+              _  P  _
+              O  X  _
+      <think>
+      MAP:
+      ? # # # ?
+      ? _ _ _ ?
+      ? _ P _ ?
+      ? O X _ ?
+      ? ? ? ? ?
+      PLAN: Row 1 walls kept from Turn 1 memory (not visible now). O found at (4,2), X just pushed to (4,3). Move right to get behind X and push it left onto O.
+      </think><answer>Right</answer>
     max_tokens: 512
     parallel_friendly: false
     max_workers: 32

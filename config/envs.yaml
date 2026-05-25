@@ -412,33 +412,33 @@ custom_envs:
 
       EXAMPLE — study how the MAP is built and updated across turns:
 
-      Turn 1 | Position: (2,3)
-      State:  #  #  #
-              _  P  _
-              _  X  _
-      <think>
-      MAP:
-      ? # # # ?
-      ? _ P _ ?
-      ? _ X _ ?
-      ? ? ? ? ?
-      ? ? ? ? ?
-      PLAN: X visible below at (3,3). Push it down to explore lower rows.
-      </think><answer>Down</answer>
-
-      Turn 2 | Position: (3,3)
+      Turn 1 | Position: (2,2)
       State:  _  _  _
               _  P  _
-              O  X  _
+              _  X  O
       <think>
       MAP:
-      ? # # # ?
+      ? ? ? ? ?
       ? _ _ _ ?
       ? _ P _ ?
-      ? O X _ ?
+      ? _ X O ?
       ? ? ? ? ?
-      PLAN: Row 1 walls kept from Turn 1 memory (not visible now). O found at (4,2), X just pushed to (4,3). Move right to get behind X and push it left onto O.
-      </think><answer>Right</answer>
+      PLAN: Position (2,2) → view covers rows 1-3, cols 1-3; rows 0 and 4 unseen. X at (3,2), O at (3,3). To push X right onto O need to reach (3,1). Move Left then Down.
+      </think><answer>Left</answer>
+
+      Turn 2 | Position: (2,1)
+      State:  #  _  _
+              #  P  _
+              #  _  X
+      <think>
+      MAP:
+      ? ? ? ? ?
+      # _ _ _ ?
+      # P _ _ ?
+      # _ X O ?
+      ? ? ? ? ?
+      PLAN: Position (2,1) → view covers rows 1-3, cols 0-2. Left border (#) at col 0 now seen. O at (3,3) kept from Turn 1 memory (col 3 not in view now). X still at (3,2). Move Down to reach (3,1), then push X right onto O.
+      </think><answer>Down</answer>
     max_tokens: 512
     parallel_friendly: false
     max_workers: 32

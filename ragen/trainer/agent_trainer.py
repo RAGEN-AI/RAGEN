@@ -377,6 +377,29 @@ class RayAgentTrainer(VerlRayPPOTrainer):
         else:
             self.gradient_analysis_proxy = None
 
+    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path, episode_ids=None):
+        """Override parent to include episode_id in trajectory JSONL for memory retention analysis."""
+        import json, os
+        os.makedirs(dump_path, exist_ok=True)
+        filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
+        n = len(inputs)
+        base_data = {
+            "input": inputs,
+            "output": outputs,
+            "gts": gts,
+            "score": scores,
+            "step": [self.global_steps] * n,
+        }
+        if episode_ids is not None:
+            base_data["episode_id"] = list(episode_ids)
+        for k, v in reward_extra_infos_dict.items():
+            if len(v) == n:
+                base_data[k] = v
+        lines = [json.dumps({k: v[i] for k, v in base_data.items()}, ensure_ascii=False) for i in range(n)]
+        with open(filename, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"Dumped generations to {filename}")
+
     def _maybe_log_generations(self, inputs, outputs, scores, _type="val"):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
@@ -1462,6 +1485,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                         inputs = self.tokenizer.batch_decode(batch.batch["input_ids"], skip_special_tokens=True)
                         outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                         scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                        episode_ids = batch.non_tensor_batch.get("episode_ids", None)
                         self._dump_generations(
                             inputs=inputs,
                             outputs=outputs,
@@ -1469,6 +1493,7 @@ class RayAgentTrainer(VerlRayPPOTrainer):
                             scores=scores,
                             reward_extra_infos_dict=reward_extra_infos_dict,
                             dump_path=rollout_data_dir,
+                            episode_ids=episode_ids,
                         )
 
                 # validate

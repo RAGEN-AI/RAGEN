@@ -380,6 +380,17 @@ class RayAgentTrainer(VerlRayPPOTrainer):
     def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path, episode_ids=None):
         """Override parent to include episode_id in trajectory JSONL for memory retention analysis."""
         import json, os
+        import numpy as np
+
+        def _to_py(v):
+            if isinstance(v, np.integer):
+                return int(v)
+            if isinstance(v, np.floating):
+                return float(v)
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            return v
+
         os.makedirs(dump_path, exist_ok=True)
         filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
         n = len(inputs)
@@ -387,14 +398,14 @@ class RayAgentTrainer(VerlRayPPOTrainer):
             "input": inputs,
             "output": outputs,
             "gts": gts,
-            "score": scores,
+            "score": [_to_py(s) for s in scores],
             "step": [self.global_steps] * n,
         }
         if episode_ids is not None:
-            base_data["episode_id"] = list(episode_ids)
+            base_data["episode_id"] = [_to_py(x) for x in episode_ids]
         for k, v in reward_extra_infos_dict.items():
             if len(v) == n:
-                base_data[k] = v
+                base_data[k] = [_to_py(x) for x in v]
         lines = [json.dumps({k: v[i] for k, v in base_data.items()}, ensure_ascii=False) for i in range(n)]
         with open(filename, "w") as f:
             f.write("\n".join(lines) + "\n")

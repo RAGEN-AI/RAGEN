@@ -183,12 +183,13 @@ def build_messages(history: list[dict], new_obs: str, max_context_window: int = 
     return system + turns + [{"role": "user", "content": new_obs}]
 
 
-def make_env(seed: int) -> SokobanEnv:
+def make_env(seed: int, min_solution_steps: Optional[list] = None) -> SokobanEnv:
     cfg = SokobanEnvConfig(
         dim_x=5, dim_y=5, num_boxes=1, max_steps=150,
         search_depth=100, partial_obs=True, partial_obs_window=1,
         ignore_gym_reward=True, success_reward=1.0,
         distance_reward_coeff=0.3, no_op_penalty=-0.01,
+        min_solution_steps=min_solution_steps,
     )
     env = SokobanEnv(cfg)
     env.reset(seed=seed)
@@ -221,7 +222,7 @@ def run_eval(args) -> list[EpisodeResult]:
         seed = args.seed + ep
         t0 = time.time()
 
-        env = make_env(seed)
+        env = make_env(seed, args.min_solution_steps)
         obs = env.render()
 
         history = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -329,6 +330,9 @@ def main() -> None:
     parser.add_argument("--tensor_parallel_size", type=int, default=1)
     parser.add_argument("--max_context_window", type=int, default=-1,
                         help="Number of past turns to keep (-1 = full, 1 = mem1, 4 = win4)")
+    parser.add_argument("--min_solution_steps", type=int, nargs=2, default=None,
+                        metavar=("MIN", "MAX"),
+                        help="Only use puzzles solvable in [MIN, MAX] steps, e.g. --min_solution_steps 4 8")
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 

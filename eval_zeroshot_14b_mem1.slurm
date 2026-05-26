@@ -41,4 +41,5 @@ echo "SLURM_JOB_ID: ${SLURM_JOB_ID}"
     --seed 42 \
     --tensor_parallel_size 1 \
     --max_context_window 1 \
+    --min_solution_steps 4 8 \
     2>&1 | tee "/home/eiu4164/projects/RAGEN/logs/zeroshot_14b_mem1.${SLURM_JOB_ID}.log"

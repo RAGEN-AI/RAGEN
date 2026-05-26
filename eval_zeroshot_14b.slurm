@@ -27,6 +27,7 @@ conda activate ragen
 export PYTHONNOUSERSITE=1
 export HF_HOME=/projects/p32139/hf_cache
 export OMP_NUM_THREADS=16
+export VLLM_USE_V1=0
 
 PY=$(which python)
 echo "Python:       ${PY}"

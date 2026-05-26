@@ -173,8 +173,14 @@ def parse_action(text: str) -> Optional[int]:
     return None
 
 
-def build_messages(history: list[dict], new_obs: str) -> list[dict]:
-    return history + [{"role": "user", "content": new_obs}]
+def build_messages(history: list[dict], new_obs: str, max_context_window: int = -1) -> list[dict]:
+    system = history[:1]  # always keep system message
+    turns = history[1:]   # (user, assistant) pairs beyond system
+    if max_context_window > 0:
+        # each turn = 2 messages (user + assistant); keep last k pairs
+        keep = max_context_window * 2
+        turns = turns[-keep:]
+    return system + turns + [{"role": "user", "content": new_obs}]
 
 
 def make_env(seed: int) -> SokobanEnv:
@@ -227,7 +233,7 @@ def run_eval(args) -> list[EpisodeResult]:
         turn_records = []
 
         for step in range(args.max_steps):
-            messages = build_messages(history, obs)
+            messages = build_messages(history, obs, args.max_context_window)
 
             tokenizer = llm.get_tokenizer()
             prompt = tokenizer.apply_chat_template(
@@ -321,17 +327,21 @@ def main() -> None:
     parser.add_argument("--max_steps", type=int, default=150)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--tensor_parallel_size", type=int, default=1)
+    parser.add_argument("--max_context_window", type=int, default=-1,
+                        help="Number of past turns to keep (-1 = full, 1 = mem1, 4 = win4)")
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 
     if args.output is None:
         safe_name = args.model.replace("/", "_")
-        args.output = f"results/zeroshot_{safe_name}_n{args.n_episodes}.json"
+        ctx_tag = f"_ctx{args.max_context_window}" if args.max_context_window > 0 else ""
+        args.output = f"results/zeroshot_{safe_name}{ctx_tag}_n{args.n_episodes}.json"
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
+    ctx_desc = f"full" if args.max_context_window < 0 else f"win{args.max_context_window}"
     print(f"\nZero-shot POMDP Sokoban evaluation")
-    print(f"Model: {args.model}  |  Episodes: {args.n_episodes}  |  Max steps: {args.max_steps}\n")
+    print(f"Model: {args.model}  |  Episodes: {args.n_episodes}  |  Max steps: {args.max_steps}  |  Context: {ctx_desc}\n")
 
     results = run_eval(args)
     print_summary(results, args.model)

@@ -46,6 +46,12 @@ def last_turn_number(text: str):
     return int(matches[-1].group(1)) if matches else None
 
 
+def extract_last_think(text: str) -> str:
+    """Extract the last <think>...</think> block — model's actual response, not the example."""
+    matches = list(re.finditer(r"<think>(.*?)</think>", text, re.DOTALL))
+    return matches[-1].group(1) if matches else ""
+
+
 def analyze_record(record: dict) -> dict:
     obs_prompt = record.get("input", "")
     model_response = record.get("output", "")

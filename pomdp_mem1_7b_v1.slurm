@@ -16,6 +16,8 @@
 # POMDP Sokoban — MEM1, 7B + LoRA rank=8
 # Goal: test if larger model + RL training achieves both good MAP quality and task success
 # vs 3B MEM1: MAP P@(r,c)%=6-16% but success~35%; 14B zero-shot: P@(r,c)%=31% but success=24%
+# v1 fix: reduced gpu_memory_utilization 0.75→0.35, max_model_len 4096→2048, micro_batch 2→1
+# to resolve OOM (7B FSDP actor+ref ~28GB leaves <1GB for vLLM KV cache on H100-80GB)
 
 set -eo pipefail
 
@@ -51,16 +53,17 @@ EXP_NAME="pomdp_mem1_lora8_7b_h100_v1"
     lora.rank=8 \
     lora.alpha=64 \
     trainer.n_gpus_per_node=1 \
-    micro_batch_size_per_gpu=2 \
+    micro_batch_size_per_gpu=1 \
     ppo_mini_batch_size=64 \
     es_manager.train.group_size=32 \
     es_manager.format_penalty=-0.5 \
     es_manager.think_quality_penalty=0.3 \
     actor_rollout_ref.rollout.rollout_filter_value=0.40 \
     actor_rollout_ref.actor.entropy_coeff=0.01 \
-    actor_rollout_ref.rollout.max_model_len=4096 \
+    actor_rollout_ref.rollout.max_model_len=2048 \
     actor_rollout_ref.rollout.response_length=256 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.75 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.35 \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     custom_envs.POMDPSokoban.env_config.min_solution_steps=[4,8] \

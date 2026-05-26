@@ -53,9 +53,8 @@ def analyze_record(record: dict) -> dict:
     r, c = last_position(obs_prompt)
     turn_num = last_turn_number(obs_prompt)
 
-    # <think> block — first match in model_response (it's pure model output)
-    think_match = re.search(r"<think>(.*?)</think>", model_response, re.DOTALL)
-    think = think_match.group(1) if think_match else ""
+    # <think> block — LAST match: output = full sequence, model's response is at the end
+    think = extract_last_think(model_response)
 
     # MAP: up to 7 candidate lines, keep rows of exactly 5 tokens
     map_rows_raw = []

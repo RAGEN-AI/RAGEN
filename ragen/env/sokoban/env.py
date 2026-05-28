@@ -150,8 +150,9 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
                 row_cells.append(self.GRID_LOOKUP.get(cell, " ? "))
             rows.append(''.join(row_cells))
         grid_str = '\n'.join(rows)
+        pos_str = f"Position: ({r}, {c}) | " if self.config.show_position else ""
         footer = (
-            f"Position: ({r}, {c}) | "
+            f"{pos_str}"
             f"Step: {self.num_env_steps} | "
             f"Boxes on target: {self.boxes_on_target}/{self.num_boxes}"
         )

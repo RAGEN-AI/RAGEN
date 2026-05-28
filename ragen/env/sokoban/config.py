@@ -31,6 +31,9 @@ class SokobanEnvConfig:
     # window=1 → 3×3 view. Full board position is still appended so the agent can build a map.
     partial_obs: bool = False
     partial_obs_window: int = 1
+    # If False, omit "Position: (r, c)" from partial-obs footer — forces the agent to
+    # track its own position from the visual flow (harder, tests genuine map-building).
+    show_position: bool = True
 
     def __post_init__(self):
         if self.dim_x is not None and self.dim_y is not None:

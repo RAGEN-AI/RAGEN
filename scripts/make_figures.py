@@ -264,7 +264,7 @@ def fig3():
     print("\n[Fig 3] Memory effect bar chart...")
 
     conditions = ['5×5 Easy\n[4–8 steps]', '5×5 Hard\n[8–15 steps]', '7×7 Easy\n[4–8 steps]']
-    mem1_vals  = [0.324, 0.176, 0.276]
+    mem1_vals  = [0.322, 0.178, 0.276]
     nomem_vals = [0.316, 0.154, 0.303]
 
     x = np.arange(len(conditions))

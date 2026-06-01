@@ -36,7 +36,6 @@ C = {
     'mem1':  '#1565C0',   # dark blue
     'nomem': '#C62828',   # dark red
     'full':  '#616161',   # gray
-    'win4':  '#6A1B9A',   # purple
     '3b':    '#2E7D32',   # dark green
     '7b':    '#E65100',   # deep orange
 }
@@ -148,7 +147,6 @@ def fig1():
     specs = [
         ('MEM1',         mem1_data,                                            C['mem1'],  '-',  2.5),
         ('NoMem',        parse_log('pomdp_nomem_lora8_3b_h100.9136120.log'),   C['nomem'], '-',  2.5),
-        ('Win4',         parse_log('pomdp_win4_lora8_3b_h100_v2.*.log'),       C['win4'],  '--', 2.0),
         ('Full context', parse_log('pomdp_full_lora8_3b_h100_v2.*.log'),       C['full'],  ':',  2.0),
     ]
 
@@ -269,13 +267,25 @@ def fig3():
     mem1_vals  = [0.326, 0.176, 0.273]
     nomem_vals = [0.312, 0.159, 0.313]
 
+    # Step-level std across training (computed from log data)
+    # 5×5 Easy: from MEM1 v2-resume and NoMem v1 full runs
+    # 5×5 Hard: from hard_v1 logs (15 sampled steps each)
+    # 7×7 Easy: from 7x7_v1 logs (NoMem std inflated by KL-spike outlier at step 71)
+    std_mem1  = [0.088, 0.056, 0.084]
+    std_nomem = [0.082, 0.054, 0.115]
+
     x = np.arange(len(conditions))
     w = 0.34
+    eb_kw = dict(fmt='none', color='#212121', capsize=5, linewidth=1.8, zorder=4)
 
-    fig, ax = plt.subplots(figsize=(8.5, 5))
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
 
     b1 = ax.bar(x - w/2, mem1_vals,  w, color=C['mem1'],  label='MEM1',  alpha=0.88, zorder=3)
     b2 = ax.bar(x + w/2, nomem_vals, w, color=C['nomem'], label='NoMem', alpha=0.88, zorder=3)
+
+    # Error bars
+    ax.errorbar(x - w/2, mem1_vals,  yerr=std_mem1,  **eb_kw)
+    ax.errorbar(x + w/2, nomem_vals, yerr=std_nomem, **eb_kw)
 
     # Value labels on bars
     for bar in list(b1) + list(b2):
@@ -284,14 +294,22 @@ def fig3():
                 f'{bar.get_height():.2f}',
                 ha='center', va='bottom', fontsize=10.5)
 
-    # Gap annotations above each condition
-    for i, (m, n) in enumerate(zip(mem1_vals, nomem_vals)):
-        gap = m - n
-        y_top = max(m, n) + 0.042
+    # Gap annotations (positioned above the taller error bar)
+    for i, (m, n, sm, sn) in enumerate(zip(mem1_vals, nomem_vals, std_mem1, std_nomem)):
+        gap   = m - n
+        y_top = max(m + sm, n + sn) + 0.03
         color = '#1B5E20' if gap > 0.005 else '#B71C1C' if gap < -0.005 else '#757575'
         sign  = '+' if gap >= 0 else ''
         ax.text(x[i], y_top, f'Δ = {sign}{gap:.3f}',
                 ha='center', fontsize=10.5, color=color, fontweight='bold')
+
+    # Note about noise
+    ax.text(0.99, 0.97,
+            'Error bars = ±1 std (step-level)\nAll Δ are within noise',
+            transform=ax.transAxes, fontsize=9, color='#616161',
+            va='top', ha='right',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#F5F5F5',
+                      edgecolor='#BDBDBD', alpha=0.8))
 
     # 14B reference
     ax.axhline(0.24, color='#9E9E9E', linewidth=1.2, linestyle='-.', alpha=0.75)
@@ -303,7 +321,7 @@ def fig3():
     ax.set_title('Effect of Memory Access Across Task Conditions\n'
                  'Δ = MEM1 − NoMem  (positive = memory helps)')
     ax.legend(fontsize=11, framealpha=0.85)
-    ax.set_ylim(0, 0.56)
+    ax.set_ylim(0, 0.62)
 
     plt.tight_layout()
     plt.savefig('figures/fig3_memory_effect.png', bbox_inches='tight')

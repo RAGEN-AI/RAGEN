@@ -30,21 +30,36 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             **kwargs
         )
 
-    def reset(self, seed=None, mode=None):
-        try:
-            with all_seed(seed):
-                self.room_fixed, self.room_state, self.box_mapping, action_sequence = generate_room(
-                    dim=self.dim_room,
-                    num_steps=self.num_gen_steps,
-                    num_boxes=self.num_boxes,
-                    search_depth=self.search_depth
-                )
-            self.num_env_steps, self.reward_last, self.boxes_on_target = 0, 0, 0
-            self.player_position = np.argwhere(self.room_state == 5)[0]
-            return self.render()
-        except (RuntimeError, RuntimeWarning) as e:
-            next_seed = abs(hash(str(seed))) % (2 ** 32) if seed is not None else None
-            return self.reset(next_seed)
+    def reset(self, seed=None, mode=None, max_retries=32):
+        # Room generation can fail stochastically (e.g. "not enough free spots").
+        # Retry with a DETERMINISTIC, bounded loop: a given `seed` must always yield
+        # the same puzzle across runs/processes. The previous code derived the retry
+        # seed from `hash(str(seed))`, whose value is randomized per process (unless
+        # PYTHONHASHSEED is fixed), so identical nominal seeds produced different
+        # puzzles on retry — breaking reproducibility. Unbounded recursion could also
+        # hang if generation kept failing.
+        current_seed = seed
+        for _ in range(max_retries):
+            try:
+                with all_seed(current_seed):
+                    self.room_fixed, self.room_state, self.box_mapping, action_sequence = generate_room(
+                        dim=self.dim_room,
+                        num_steps=self.num_gen_steps,
+                        num_boxes=self.num_boxes,
+                        search_depth=self.search_depth
+                    )
+                self.num_env_steps, self.reward_last, self.boxes_on_target = 0, 0, 0
+                self.player_position = np.argwhere(self.room_state == 5)[0]
+                return self.render()
+            except (RuntimeError, RuntimeWarning):
+                if current_seed is None:
+                    continue  # unseeded: retry advances the global RNG state
+                # Deterministic derivation, independent of PYTHONHASHSEED.
+                current_seed = int(np.random.RandomState(current_seed % (2 ** 32)).randint(2 ** 32))
+        raise RuntimeError(
+            f"Sokoban room generation failed after {max_retries} retries "
+            f"(seed={seed}, dim={self.dim_room}, num_boxes={self.num_boxes})"
+        )
         
     def step(self, action: int):
         previous_pos = self.player_position

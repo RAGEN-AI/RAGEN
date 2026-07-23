@@ -19,7 +19,7 @@ This setup has been validated on `H100`, `H200`, and `B200`, and supports:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/CHIGUI0/RAGEN.git
+git clone https://github.com/mll-lab-nu/RAGEN.git
 cd RAGEN
 ```
 

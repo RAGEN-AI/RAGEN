@@ -4,10 +4,10 @@
 <p align="center"><img src="public/ragen_logo.jpeg" width="300px" alt="RAGEN icon" /></p>
 
 <p align="center">
-  <strong>RAGEN</strong> (<b>R</b>easoning <b>AGEN</b>T) is a flexible RL framework for training reasoning agents.
+  <strong>RAGEN</strong> (<b>R</b>easoning <b>AGEN</b>T) is a flexible RL framework for training reasoning <strong>LLM agents</strong> with <strong>multi-turn reinforcement learning</strong>, built on the <strong>StarPO</strong> algorithm.
 </p>
 <p align="center">
-  We develop <strong>diagnostics to understand <i>how</i> agent RL training works </strong>, and how to fix hidden issues.
+  We develop <strong>diagnostics to understand <i>how</i> agentic reinforcement learning (agent RL) training works</strong>, and how to fix hidden failure modes such as the <strong>Echo Trap</strong> (RAGEN) and <strong>reasoning collapse</strong> (RAGEN-2).
 </p>
 
 <p align="center">
@@ -17,6 +17,14 @@
   <!-- <a href="https://ragen-doc.readthedocs.io/"><img src="https://img.shields.io/badge/📚_Documentation-4285F4?style=for-the-badge&logoColor=white" alt="Documentation"></a> -->
   <a href="https://x.com/wzihanw/status/1915052871474712858"><img src="https://img.shields.io/badge/🔍_Post-34A853?style=for-the-badge&logoColor=white" alt="Post"></a>
   <a href="https://api.wandb.ai/links/zihanwang-ai-northwestern-university/a8er8l7b"><img src="https://img.shields.io/badge/🧪_Experiment_Log-AB47BC?style=for-the-badge&logoColor=white" alt="Experiment Log"></a>
+</p>
+
+<p align="center">
+  <a href="https://ragen-ai.github.io/">Project Page</a> ·
+  <a href="https://ragen-ai.github.io/v2/">RAGEN-2 Page</a> ·
+  <a href="https://arxiv.org/abs/2504.20073">RAGEN on arXiv</a> ·
+  <a href="https://arxiv.org/abs/2604.06268">RAGEN-2 on arXiv</a> ·
+  <a href="https://limanling.github.io/">MLL Lab (Manling Li, Northwestern)</a>
 </p>
 
 > **Looking for the V1 README?** Please take a look [here](docs/readme_v1.md).

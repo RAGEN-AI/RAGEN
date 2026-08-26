@@ -1,7 +1,7 @@
 import pytest
 from ragen.llm_agent.ctx_manager import ContextManager
 from omegaconf import OmegaConf
-from verl.verl.protocol import DataProto
+from verl.protocol import DataProto
 
 class DummyTokenizer:
     name_or_path = "qwen"  # or "llama-3" or any string your code expects

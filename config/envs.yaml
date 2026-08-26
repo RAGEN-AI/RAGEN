@@ -62,12 +62,17 @@ custom_envs:
     max_actions_per_traj: 10
     env_instruction: |
       You are solving the Sokoban puzzle. You are the player and you need to push all boxes to targets.
-      You are provided with a symbol grid and the zero-indexed coordinates of the player, each box, and each target. 
-      Coordinates range from the top-left corner (0, 0) to the bottom-right corner (5, 5). 
-      When you are exactly next to a box, you can push it by moving in the same direction. 
+      You are provided with a symbol grid and the zero-indexed coordinates of the player, each box, and each target.
+      Row index increases downward (row 0 is the top row), column index increases rightward (col 0 is the leftmost column).
+      When you are exactly next to a box, you can push it by moving in the same direction.
+      To push a box Down, you must be directly above it (player row < box row). To push a box Up, you must be directly below it (player row > box row). To push a box Right, you must be to its left (player col < box col). To push a box Left, you must be to its right (player col > box col).
       You cannot push a box through a wall, and you cannot pull a box.
       The answer should be a sequence of actions, like <answer>Right || Right || Up</answer>.
-    max_tokens: 120
+      Before every action, read the current state carefully and begin your thinking with the exact coordinates:
+      Player: (row, col) | Box: (row, col) | Target: (row, col)
+      Then derive your move from these coordinates. Do not rely on memory of previous states.
+      Keep <think> under 150 tokens to leave room for <answer>.
+    max_tokens: 256
     parallel_friendly: false
     max_workers: 32
     env_config: # keys should be a subset of SokobanConfig
@@ -76,6 +81,12 @@ custom_envs:
       num_boxes: 1
       max_steps: 100
       observation_format: "grid_coord"
+      search_depth: 300            # reduce to ~5 when using min_solution_steps=[1,3]
+      distance_reward_coeff: 0.0   # 0.0=disabled; try 0.1~0.5 for shaped reward
+      min_solution_steps: null     # null=no filter; set to [1,3] for easy curriculum
+      ignore_gym_reward: false     # true = success_reward only; false = use gym reward
+      success_reward: 1.0          # reward given on success when ignore_gym_reward=true
+      no_op_penalty: 0.0           # penalty per no-op action (player position unchanged)
 
   VisualSimpleSokoban:
     env_type: sokoban
@@ -371,3 +382,210 @@ custom_envs:
       scramble_depth: 1
       max_steps: 20
       render_mode: "text"
+
+  # ── POMDP Sokoban variants (partial observation, memory experiments) ──────────
+  # Agent sees only a 3×3 window around itself; must build a mental map in <think>.
+  # Compare with full-context / sliding-window / MEM1-style truncation strategies.
+
+  POMDPSokoban:
+    env_type: sokoban
+    max_actions_per_traj: 50
+    env_instruction: |
+      You are navigating a Sokoban board. You can only see a 3×3 area around you.
+      Goal: push all boxes ( X ) onto targets ( O ). You are P.
+      Symbols: # =wall, _ =empty, O =target, X =box, √ =box on target, P =you.
+
+      MEMORY RULE: previous observations are discarded — only your <think> block
+      carries forward. Use it to maintain a running map of the 5×5 board.
+
+      In <think>, keep:
+        MAP: a 5×5 grid using the same symbols above, ? for unseen cells.
+             Update it each turn by filling in the 3×3 patch you currently see.
+             Overwrite box positions when a box moves.
+        PLAN: one sentence on what you intend to do next.
+
+      After <think>, output exactly ONE action:
+      <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+
+      KEY RULE: Position (r,c) means your 3×3 view covers MAP rows [r-1,r,r+1] and cols [c-1,c,c+1].
+      All other MAP cells stay ? until you visit them. Cells you saw before stay filled even when out of view.
+
+      EXAMPLE — study how the MAP is built and updated across turns:
+
+      Turn 1 | Position: (2,2)
+      State:  _  _  _
+              _  P  _
+              _  X  O
+      <think>
+      MAP:
+      ? ? ? ? ?
+      ? _ _ _ ?
+      ? _ P _ ?
+      ? _ X O ?
+      ? ? ? ? ?
+      PLAN: Position (2,2) → view covers rows 1-3, cols 1-3; rows 0 and 4 unseen. X at (3,2), O at (3,3). To push X right onto O need to reach (3,1). Move Left then Down.
+      </think><answer>Left</answer>
+
+      Turn 2 | Position: (2,1)
+      State:  #  _  _
+              #  P  _
+              #  _  X
+      <think>
+      MAP:
+      ? ? ? ? ?
+      # _ _ _ ?
+      # P _ _ ?
+      # _ X O ?
+      ? ? ? ? ?
+      PLAN: Position (2,1) → view covers rows 1-3, cols 0-2. Left border (#) at col 0 now seen. O at (3,3) kept from Turn 1 memory (col 3 not in view now). X still at (3,2). Move Down to reach (3,1), then push X right onto O.
+      </think><answer>Down</answer>
+    max_tokens: 512
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      dim_x: 5
+      dim_y: 5
+      num_boxes: 1
+      max_steps: 150
+      search_depth: 100
+      min_solution_steps: null  # null=no filter; set to [1,3] via CLI for easy curriculum
+      partial_obs: true
+      partial_obs_window: 1
+      ignore_gym_reward: true
+      success_reward: 1.0
+      distance_reward_coeff: 0.3
+      no_op_penalty: -0.01
+
+  POMDPSokoban7x7:
+    env_type: sokoban
+    max_actions_per_traj: 100
+    env_instruction: |
+      You are navigating a 7×7 Sokoban board. You can only see a 3×3 area around you.
+      Goal: push all boxes ( X ) onto targets ( O ). You are P.
+      Symbols: # =wall, _ =empty, O =target, X =box, √ =box on target, P =you.
+
+      MEMORY RULE: previous observations are discarded — only your <think> block carries forward.
+      You are NOT told your position. You must track it yourself.
+
+      In <think>, keep:
+        POS: your estimated (row, col) on the 7×7 board.
+             First turn: infer from wall pattern (e.g. # on left → col≤1, # on top → row≤1).
+             Each turn: successful move shifts POS by Up→(-1,0) Down→(+1,0) Left→(0,-1) Right→(0,+1).
+             If the view did NOT change after a move, you hit a wall — POS unchanged.
+        MAP: a 7×7 grid using the same symbols, ? for unseen cells.
+             Each turn, copy the 3×3 view into MAP centred on your POS estimate.
+             Overwrite box positions when a box moves.
+        PLAN: one sentence on what you intend to do next.
+
+      After <think>, output exactly ONE action:
+      <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+
+      EXAMPLE — Turn 1: you see walls on left and top, so you are near (1,1).
+
+      Step: 1 | Boxes on target: 0/1
+      State:  #  #  #
+              #  P  _
+              #  _  _
+      <think>
+      POS: (1,1) — top row all #, left col all #, so row≤1 and col≤1; walls confirm (1,1).
+      MAP:
+      # # # ? ? ? ?
+      # P _ ? ? ? ?
+      # _ _ ? ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      PLAN: Near top-left corner. Need to explore right and down to find box and target.
+      </think><answer>Right</answer>
+
+      EXAMPLE — Turn 2: moved Right, POS becomes (1,2). View shifts one column right.
+
+      Step: 2 | Boxes on target: 0/1
+      State:  #  #  _
+              #  P  X
+              _  _  O
+      <think>
+      POS: (1,2) — moved Right from (1,1), so col +1.
+      MAP:
+      # # # _ ? ? ?
+      # # P X ? ? ?
+      # _ _ O ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      ? ? ? ? ? ? ?
+      PLAN: X at (1,3), O at (2,3). Push X down onto O: move to (0,3) then push Down.
+      </think><answer>Up</answer>
+    max_tokens: 768
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      dim_x: 7
+      dim_y: 7
+      num_boxes: 1
+      max_steps: 150
+      search_depth: 100
+      min_solution_steps: null
+      partial_obs: true
+      partial_obs_window: 1
+      show_position: false
+      ignore_gym_reward: true
+      success_reward: 1.0
+      distance_reward_coeff: 0.3
+      no_op_penalty: -0.01
+
+  POMDPSokobanHard:
+    env_type: sokoban
+    max_actions_per_traj: 80
+    env_instruction: |
+      You are navigating a Sokoban board. You can only see a 3×3 area around you.
+      Goal: push all boxes ( X ) onto targets ( O ). You are P.
+      Symbols: # =wall, _ =empty, O =target, X =box, √ =box on target, P =you.
+
+      MEMORY RULE: previous observations are discarded — only your <think> block
+      carries forward. Use it to maintain a running map of the 6×6 board.
+
+      In <think>, keep:
+        MAP: a 6×6 grid using the same symbols above, ? for unseen cells.
+             Update it each turn by filling in the 3×3 patch you currently see.
+             Overwrite box positions when a box moves.
+        PLAN: one sentence on what you intend to do next.
+
+      After <think>, output exactly ONE action:
+      <answer>Up</answer>, <answer>Down</answer>, <answer>Left</answer>, or <answer>Right</answer>.
+    max_tokens: 512
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      dim_x: 6
+      dim_y: 6
+      num_boxes: 2
+      max_steps: 200
+      search_depth: 300
+      min_solution_steps: null
+      partial_obs: true
+      partial_obs_window: 1
+      ignore_gym_reward: true
+      success_reward: 1.0
+      distance_reward_coeff: 0.1
+      no_op_penalty: -0.01
+
+  LightsOut:
+    env_type: lights_out
+    max_actions_per_traj: 8
+    env_instruction: |
+      You are solving the Lights Out puzzle. The board is a square grid of lights.
+      A 1 means the light is on and a 0 means the light is off.
+      Pressing a cell toggles that cell and its orthogonal neighbors: up, down, left, and right.
+      Your goal is to turn every light off.
+      Coordinates are zero-indexed. Respond with one action such as <answer>toggle 0 1</answer>.
+    max_tokens: 128
+    parallel_friendly: false
+    max_workers: 32
+    env_config:
+      size: 3
+      scramble_depth: 4
+      max_steps: 8
+      shaped_reward: true
+      success_reward: 1.0

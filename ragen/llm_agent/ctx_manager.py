@@ -144,6 +144,7 @@ class ContextManager:
             prefixes[env_tag] = env_instruction
             env_config_lookup[env_tag] = {
                 'max_tokens': env_config.get("max_tokens", self.config.actor_rollout_ref.rollout.response_length),
+                'action_lookup': env_config_new.get("action_lookup", {}),
                 'env_type': env_config.env_type,
             }
 
@@ -196,20 +197,22 @@ class ContextManager:
     def _parse_response(self, response: str) -> List:
         pattern = r'<think>(.*?)</think>\s*<answer>(.*?)</answer>' if self.config.agent_proxy.enable_think else r'<answer>(.*?)</answer>'
         match = re.search(pattern, response, re.DOTALL)
+        think_coord_fmt_ok = False
         if not match:
             # think_content, action_content, actions = "", "", [] # do not remove this kind of invalid string
             llm_response, actions = response, []
+            think_len = -1  # no valid format, don't penalize think separately
         else:
             if self.config.agent_proxy.enable_think:
                 think_content, action_content = match.group(1), match.group(2)
             else:
                 think_content, action_content = "", match.group(1)
 
-                
+
             for special_token in self.special_token_list:
                 action_content = action_content.replace(special_token, "").strip()
                 think_content = think_content.replace(special_token, "").strip()
-            
+
             actions = [action.strip() for action in action_content.split(self.action_sep) if action.strip()]
             max_actions = self.config.agent_proxy.max_actions_per_turn
 
@@ -218,7 +221,10 @@ class ContextManager:
                 action_content = (" " + self.action_sep + " ").join(actions)
 
             llm_response = f"<think>{think_content}</think><answer>{action_content}</answer>" if self.config.agent_proxy.enable_think else f"<answer>{action_content}</answer>"
-        return llm_response, actions
+            think_len = len(think_content)
+            # Check if think starts with coordinate format: "Player: (r, c) | Box: (r, c) | Target: (r, c)"
+            think_coord_fmt_ok = bool(re.match(r'\s*Player:\s*\(\d+,\s*\d+\)', think_content))
+        return llm_response, actions, think_len, think_coord_fmt_ok
         
     def _normalize_score_tensor(self, score_tensor: torch.Tensor, env_outputs: List[Dict]) -> torch.Tensor:
         """
@@ -531,9 +537,9 @@ class ContextManager:
     def _build_format_prompt(self, env_id: int) -> Tuple[str, str]:
         """Build FORMAT_PROMPT and LENGTH_PROMPT for an environment."""
         FORMAT_PROMPT = (
-            "<think> [Your thoughts] </think> <answer> [your answer] </answer>"
+            "<think>...</think><answer>...</answer>"
             if self.config.agent_proxy.enable_think
-            else "<answer> [your answer] </answer>"
+            else "<answer>...</answer>"
         )
         LENGTH_PROMPT = f"Max response length: {self.env_config_lookup[env_id]['max_tokens']} words (tokens)."
         return FORMAT_PROMPT, LENGTH_PROMPT
@@ -556,6 +562,7 @@ class ContextManager:
         turn_offset: int,
         include_warning: bool,
         include_assistant: bool,
+        old_history_summary: Optional[str] = None,
     ) -> List[Dict]:
         messages = [
             {"role": "system", "content": self._build_system_content(env_output["env_id"])},
@@ -568,6 +575,7 @@ class ContextManager:
             history_start=history_start,
             turn_offset=turn_offset,
             include_warning=include_warning,
+            old_history_summary=old_history_summary,
         )
         if include_assistant:
             messages.append({"role": "assistant", "content": history[turn_idx]["llm_response"]})
@@ -862,6 +870,87 @@ class ContextManager:
 
     # ==================== End Mask Computation ====================
 
+    # ==================== Summary Memory ====================
+
+    def _build_episode_summary(self, old_history: List[Dict], env_id=None) -> str:
+        """
+        Build a compact template-based summary of turns that fall outside the
+        recent context window.  Called when enable_summary_memory=True and
+        there is history before history_start.
+
+        Args:
+            old_history: history entries (each a dict) for turns BEFORE the
+                         recent window, i.e. history[:history_start].
+
+        Returns:
+            A short multi-line string (~60-100 tokens) summarising what
+            happened in those turns, or "" if old_history is empty.
+        """
+        if not old_history:
+            return ""
+
+        n = len(old_history)
+
+        # --- action lookup for human-readable names ---
+        action_lookup = {}
+        if env_id is not None:
+            action_lookup = self.env_config_lookup.get(env_id, {}).get("action_lookup", {})
+
+        # --- collect actions ---
+        all_actions: List[str] = []
+        for h in old_history:
+            all_actions.extend(h.get("actions", []))
+
+        # --- effectiveness ---
+        effective_count = sum(
+            1 for h in old_history
+            if h.get("info", {}).get("action_is_effective", False)
+        )
+
+        # --- reward ---
+        total_reward = sum(h.get("reward", 0.0) for h in old_history)
+
+        # --- success flag (any turn solved the puzzle) ---
+        any_success = any(
+            h.get("info", {}).get("success", False) for h in old_history
+        )
+
+        # --- invalid-format action count ---
+        invalid_count = sum(
+            1 for h in old_history if h.get("manager_invalid_action", False)
+        )
+
+        def _action_name(a):
+            return action_lookup.get(a, str(a))
+
+        # --- last known state coordinates ---
+        last_state_coords = ""
+        last_state = old_history[-1].get("state", "") if old_history else ""
+        if last_state:
+            coord_lines = [
+                line.strip() for line in last_state.splitlines()
+                if any(key in line for key in ("Targets:", "Boxes:", "Player:"))
+                and re.search(r'\(\d+', line)  # must contain an actual coordinate like (2,
+            ]
+            if coord_lines:
+                last_state_coords = "State at end of summary: " + " | ".join(coord_lines)
+
+        lines = [
+            f"[Memory: {n} earlier step(s) summarized, not shown in full]",
+            f"Actions tried: {', '.join(_action_name(a) for a in all_actions) if all_actions else 'none'}",
+            f"Effective moves: {effective_count}/{len(all_actions)}",
+            f"Cumulative reward from these steps: {total_reward:.2f}",
+        ]
+        if last_state_coords:
+            lines.append(last_state_coords)
+        if invalid_count > 0:
+            lines.append(f"Invalid action format: {invalid_count} time(s). Valid actions are: Up, Down, Left, Right (separated by ' || ').")
+        if any_success:
+            lines.append("Note: puzzle was already solved during these steps.")
+        return "\n".join(lines)
+
+    # ==================== End Summary Memory ====================
+
     def _build_single_turn_user_content(
         self,
         env_output: Dict,
@@ -870,7 +959,43 @@ class ContextManager:
         history_start: int,
         turn_offset: int = 0,
         include_warning: bool = False,
+        old_history_summary: Optional[str] = None,
     ) -> str:
+        content = ""
+
+        if history_start < turn_idx:
+            completed_steps = turn_idx + turn_offset
+            history_length = turn_idx - history_start
+            if old_history_summary is not None:
+                # Summary memory mode: show compact summary of old turns, then recent window in full
+                content += old_history_summary + "\n\n"
+                content += (
+                    f"Recent {history_length} turn(s) (full detail):\n---\n"
+                )
+            else:
+                # Default: simple counter + recent window in full
+                content += (
+                    f"Summary: {completed_steps} step(s) completed so far. "
+                    f"Showing the last {history_length} turn(s) with state/action/reward details. "
+                )
+                content += "Recent turns:\n---\n"
+            for h_idx in range(history_start, turn_idx):
+                actual_turn = h_idx + 1 + turn_offset
+                h_turn = history[h_idx]
+                content += f"Turn {actual_turn} State:\n{h_turn.get('state', '')}\n"
+                content += f"Turn {actual_turn} Action: {h_turn.get('llm_response', '')}\n"
+                if 'reward' in h_turn:
+                    displayed_reward = h_turn['reward'] + (self.config.es_manager.format_penalty if h_turn.get('manager_invalid_action', False) else 0.0)
+                    content += f"Turn {actual_turn} Reward: {displayed_reward}\n"
+                content += "---\n"
+
+        actual_turn = turn_idx + 1 + turn_offset
+        current_turn_prefix = "Current Turn " if history_start < turn_idx else ""
+        FORMAT_PROMPT = "<think>...</think><answer>...</answer>" if self.config.agent_proxy.enable_think else "<answer>...</answer>"
+        LENGTH_PROMPT = f"Max response length: {self.env_config_lookup[env_output['env_id']]['max_tokens']} words (tokens)."
+        warning = ""
+        if include_warning and history[turn_idx].get('manager_invalid_action'):
+            warning = "No valid action provided previously. Environment state remains the same. Please try again.\n"
         """Build user content for single-turn format using memory manager."""
         env_id = env_output["env_id"]
 
@@ -952,6 +1077,13 @@ class ContextManager:
                     include_assistant=True,
                     add_generation_prompt=False,
                 )
+
+                # Summary memory: summarise turns outside the recent window
+                enable_summary = getattr(self.config.agent_proxy, "enable_summary_memory", False)
+                old_history_summary = None
+                if enable_summary and history_start > 0:
+                    old_history_summary = self._build_episode_summary(history[:history_start], env_id=env_output["env_id"])
+
                 messages = self._build_single_turn_messages(
                     env_output=env_output,
                     history=history,
@@ -960,6 +1092,7 @@ class ContextManager:
                     turn_offset=0,
                     include_warning=False,
                     include_assistant=True,
+                    old_history_summary=old_history_summary,
                 )
 
                 text = self.tokenizer.apply_chat_template(messages, add_generation_prompt=False, tokenize=False)
@@ -1043,6 +1176,13 @@ class ContextManager:
                 ]
 
                 history_start = self._get_history_start(turn_idx, max_context_window)
+
+                # Summary memory for limited_multi_turn
+                enable_summary = getattr(self.config.agent_proxy, "enable_summary_memory", False)
+                if enable_summary and history_start > 0:
+                    old_summary = self._build_episode_summary(history[:history_start], env_id=env_output["env_id"])
+                    messages[1]["content"] = old_summary + "\n\n"
+
                 # Add all turns from history_start to turn_idx (inclusive)
                 for h_idx in range(history_start, turn_idx + 1):
                     h_turn = history[h_idx]
@@ -1058,7 +1198,8 @@ class ContextManager:
 
                     # Add reward for non-final turns
                     if h_idx < turn_idx and 'reward' in h_turn:
-                        messages.append({"role": "user", "content": f"Reward:\n{h_turn['reward']}\n"})
+                        displayed_reward = h_turn['reward'] + (self.config.es_manager.format_penalty if h_turn.get('manager_invalid_action', False) else 0.0)
+                        messages.append({"role": "user", "content": f"Reward:\n{displayed_reward}\n"})
 
                 # Apply max length truncation
                 messages = self._apply_max_length(messages, add_generation_prompt=False)
@@ -1156,7 +1297,8 @@ class ContextManager:
                 if "llm_response" in content:
                     messages.append({"role": "assistant", "content": content["llm_response"]})
                 if "reward" in content and idx < len(history) - 1:
-                    messages.append({"role": "user", "content": f"Reward:\n{content['reward']}\n"})
+                    displayed_reward = content['reward'] + (self.config.es_manager.format_penalty if content.get('manager_invalid_action', False) else 0.0)
+                    messages.append({"role": "user", "content": f"Reward:\n{displayed_reward}\n"})
 
             # Apply max length truncation
             messages = self._apply_max_length(messages, add_generation_prompt=False)
@@ -1236,17 +1378,36 @@ class ContextManager:
 
             # Apply context window for non-full modes
             turn_offset = 0
+            old_history_for_summary: List[Dict] = []
             if context_window_mode in ("single_turn", "limited_multi_turn"):
                 if resolved_max_context_window is not None and resolved_max_context_window > 0:
                     if len(history) > resolved_max_context_window:
                         turn_offset = len(history) - resolved_max_context_window
+                        old_history_for_summary = history[:turn_offset]  # save before truncation
                         history = history[-resolved_max_context_window:]
 
             if context_window_mode == "single_turn":
-                messages = self._build_infer_single_turn_messages(
-                    env_output, history, turn_offset, resolved_max_context_window
+                enable_summary = getattr(self.config.agent_proxy, "enable_summary_memory", False)
+                old_history_summary = (
+                    self._build_episode_summary(old_history_for_summary, env_id=env_output["env_id"])
+                    if enable_summary and old_history_for_summary
+                    else None
                 )
-            else:  # full or limited_multi_turn
+                messages = self._build_infer_single_turn_messages(
+                    env_output, history, turn_offset, resolved_max_context_window,
+                    old_history_summary=old_history_summary,
+                )
+            elif context_window_mode == "limited_multi_turn":
+                enable_summary = getattr(self.config.agent_proxy, "enable_summary_memory", False)
+                old_history_summary = (
+                    self._build_episode_summary(old_history_for_summary, env_id=env_output["env_id"])
+                    if enable_summary and old_history_for_summary
+                    else None
+                )
+                messages = self._build_infer_multi_turn_messages(
+                    env_output, history, turn_offset, old_history_summary=old_history_summary
+                )
+            else:  # full
                 messages = self._build_infer_multi_turn_messages(
                     env_output, history, turn_offset
                 )
@@ -1290,6 +1451,7 @@ class ContextManager:
         history: List[Dict],
         turn_offset: int,
         max_context_window: Optional[int],
+        old_history_summary: Optional[str] = None,
     ) -> List[Dict]:
         """Build messages for single_turn inference."""
         messages = [
@@ -1319,6 +1481,7 @@ class ContextManager:
             turn_offset=turn_offset,
             include_warning=True,
             include_assistant=False,
+            old_history_summary=old_history_summary,
         )
         return messages
 
@@ -1327,11 +1490,15 @@ class ContextManager:
         env_output: Dict,
         history: List[Dict],
         turn_offset: int,
+        old_history_summary: Optional[str] = None,
     ) -> List[Dict]:
         """Build messages for multi-turn inference (full or limited_multi_turn)."""
+        first_user_content = ""
+        if old_history_summary:
+            first_user_content = old_history_summary + "\n\n"
         messages = [
             {"role": "system", "content": self._build_system_content(env_output["env_id"])},
-            {"role": "user", "content": ""}
+            {"role": "user", "content": first_user_content}
         ]
 
         for idx, content in enumerate(history):
@@ -1343,7 +1510,8 @@ class ContextManager:
             if "llm_response" in content:
                 messages.append({"role": "assistant", "content": content["llm_response"]})
             if "reward" in content:
-                messages.append({"role": "user", "content": f"Reward:\n{content['reward']}\n"})
+                displayed_reward = content['reward'] + (self.config.es_manager.format_penalty if content.get('manager_invalid_action', False) else 0.0)
+                messages.append({"role": "user", "content": f"Reward:\n{displayed_reward}\n"})
 
         return messages
 
@@ -1398,7 +1566,7 @@ class ContextManager:
     def get_env_inputs(self, lm_outputs: DataProto) -> List[Dict]:
         if lm_outputs.batch is not None and 'responses' in lm_outputs.batch.keys():
             responses = self.tokenizer.batch_decode(
-                lm_outputs.batch['responses'], 
+                lm_outputs.batch['responses'],
                 skip_special_tokens=True
             )
         else: # dataproto has textual responses
@@ -1408,12 +1576,14 @@ class ContextManager:
         env_ids = lm_outputs.non_tensor_batch['env_ids']
         env_inputs = []
         for env_id, response in zip(env_ids, responses):
-            llm_response, actions = self._parse_response(response)
+            llm_response, actions, think_len, think_coord_fmt_ok = self._parse_response(response)
             env_inputs.append({
                 "env_id": env_id,
                 "llm_raw_response": response,
                 "llm_response": llm_response,
                 "actions": actions,
+                "think_len": think_len,
+                "think_coord_fmt_ok": think_coord_fmt_ok,
             })
         return env_inputs
 

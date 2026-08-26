@@ -14,7 +14,7 @@ log_prob_micro_batch_size_per_gpu: ${micro_batch_size_per_gpu}
 ppo_mini_batch_size: 32
 model_path: Qwen/Qwen2.5-3B-Instruct
 enable_response_mask: True # Enabling response mask could improve stability of rollout/old_log_prob, as P(st|history) are no longer calculated in loss here. See https://docs.google.com/document/d/1bg7obeiKTExuHHBl5uOiSpec5uLDZ2Tgvxy6li5pHX4/edit?usp=sharing for more details.
-grpo_advantage_length_weight: False # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
+grpo_advantage_length_weight: True # if you do not enable this and critic/advantage_estimator is GRPO, and the critic/advantages/mean is too low, then you can try enabling this to encourage reasoning and forbid collapse
 
 lora:
   rank: 0
@@ -134,6 +134,7 @@ trainer:
 agent_proxy:
   context_window_mode: "full" # "full" | "limited_multi_turn" | "single_turn"
   max_context_window: -1 # k value: -1 for full history, 1 for no history (like without_history)
+  enable_summary_memory: false # if true, summarize turns outside the context window instead of dropping them
   batch_adjust_mode: copy # "copy" to duplicate samples, "delete" to remove samples when batch size is not divisible
   max_turn: 5
   action_sep: "||"
@@ -153,7 +154,12 @@ collapse_detection:
   num_samples: 64  # N or all
 
 es_manager:
-  format_penalty: -0.1
+  format_penalty: -0.5
+  step_penalty: 0.0
+  think_quality_penalty: 0.0
+  think_len_penalty: 0.0
+  think_len_limit: -1
+  think_coord_fmt_penalty: 0.0
   train:
     env_groups: 8
     # under the same group, the env config and env seed are ensured to be equal

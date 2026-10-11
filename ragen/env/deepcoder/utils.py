@@ -206,6 +206,11 @@ def _run_stdin_stdout(test):
         with redirect_stdout(out_buf), redirect_stderr(err_buf):
             exec(USER_CODE, scope, scope)
         return True, out_buf.getvalue(), None
+    except SystemExit as e:
+        # A program exit ends this test, not the shared test harness.
+        if e.code is None or (isinstance(e.code, int) and e.code == 0):
+            return True, out_buf.getvalue(), None
+        return False, out_buf.getvalue(), repr(e)
     except Exception as e:
         return False, out_buf.getvalue(), repr(e)
     finally:

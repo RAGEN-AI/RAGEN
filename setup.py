@@ -58,6 +58,7 @@ lean_requires = [
 #   flask, faiss-cpu, sentence-transformers
 search_requires = [
     "requests",
+    "mcp>=1.26,<2",
 ]
 
 setup(

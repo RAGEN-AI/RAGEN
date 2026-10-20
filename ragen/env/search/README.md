@@ -18,7 +18,56 @@ Reward is computed using F1 / exact match against the HotpotQA ground truth.
 | `config.py` | Dataclass config (`SearchEnvConfig`) |
 | `reward.py` | F1 / EM reward computation |
 | `retrieval_client.py` | HTTP client for the retrieval server |
+| `parallel_client.py` | Optional anonymous Parallel Search MCP client |
 | `scripts/retrieval/server.py` | Flask server: E5 encoder + FAISS index over Wikipedia |
+
+## Optional live-web retrieval
+
+For exploration or small evaluations, [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+provides free web search in Fast mode and page fetching, without an account or API
+key. Install the search extra in your RAGEN environment:
+
+```bash
+pip install -e '.[search]'
+```
+
+Set `retrieval_backend="parallel"` when constructing the environment:
+
+```python
+from ragen.env.search import SearchEnv, SearchEnvConfig
+
+env = SearchEnv(SearchEnvConfig(
+    train_path="data/search/val.parquet",
+    retrieval_backend="parallel",
+))
+print(env.reset(seed=0))
+print(env.step("search[capital of France]")[0])
+env.close()
+```
+
+The same field is available in the environment manager's `env_config`; with the
+existing `_9_search` configuration, the Hydra override is
+`+custom_envs.SearchQA.env_config.retrieval_backend=parallel`.
+
+Prepare the question/answer parquet data as below; the Wikipedia index and local
+retrieval server are unnecessary for this backend. The agent can use
+`search[query]`, then `fetch[https://example.com/page]` to read a result URL, then
+`finish[answer]`. Both retrieval actions count toward `max_steps` and return
+excerpts bounded by `max_total_chars`; search also honors `max_search_results`.
+`retrieval_timeout` bounds each MCP connection, handshake and tool call together.
+
+This is a different retrieval regime: the live web changes over time and can
+contain benchmark answers. Use the default `local` backend and fixed Wikipedia
+corpus to reproduce the SearchQA experiments. The anonymous service is intended
+for light use and has rate limits; it is not a replacement for the dedicated
+retrieval server used for high-concurrency training. Service errors appear in
+the observation, with no automatic switch to another backend.
+
+Only the explicit `parallel` selection sends queries and fetch URLs to
+`https://search.parallel.ai/mcp`. It does not read API keys from the environment.
+Each `reset()` creates an opaque episode ID reused by all search and fetch calls
+until the next reset. Existing local server settings stay available, and
+`mock_mode=True` takes precedence over either backend and makes no network calls.
 
 ## Setup
 

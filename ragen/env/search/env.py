@@ -10,11 +10,12 @@ Architecture follows RAGEN's WebShop pattern:
 - Inherits BaseLanguageBasedEnv + gym.Env
 - Actions are text strings: search[query] / finish[answer]
 - Multi-turn: agent can search multiple times before answering
-- Requires a running retrieval server (or mock_mode for testing)
+- Uses a local retrieval server, opt-in Parallel MCP, or mock_mode for testing
 """
 
 import logging
 import re
+from uuid import uuid4
 from typing import Any, Dict, Optional, Tuple
 
 import gymnasium as gym
@@ -53,13 +54,24 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
         # Retrieval client
         if self.config.mock_mode:
             self.client = MockRetrievalClient()
-        else:
+        elif self.config.retrieval_backend == "parallel":
+            from .parallel_client import ParallelRetrievalClient
+            self.client = ParallelRetrievalClient(
+                timeout=self.config.retrieval_timeout,
+                max_results=self.config.max_search_results,
+                max_total_chars=self.config.max_total_chars,
+            )
+        elif self.config.retrieval_backend == "local":
             self.client = RetrievalClient(
                 server_url=self.config.retrieval_server_url,
                 timeout=self.config.retrieval_timeout,
                 max_results=self.config.max_search_results,
                 max_total_chars=self.config.max_total_chars,
             )
+        else:
+            raise ValueError(f"Unknown retrieval_backend: {self.config.retrieval_backend}")
+        self._parallel = self.config.retrieval_backend == "parallel" and not self.config.mock_mode
+        self._session_id = None
 
         # Load dataset
         self.data = self._load_data()
@@ -69,6 +81,7 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
         self.ground_truth = None
         self.question = None
         self.step_count = 0
+
         self.render_cache = None
 
     def _load_data(self):
@@ -106,11 +119,14 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
         self.question = item["question"]
         self.ground_truth = item["ground_truth"]
         self.step_count = 0
+        # Each rollout episode owns its identity, even when the question/seed is
+        # repeated. Related calls and retries keep this ID until the next reset.
+        self._session_id = str(uuid4()) if self._parallel else None
 
         # Build initial observation (question only, no ground_truth exposed)
         self.render_cache = (
             f"Question: {self.question}\n"
-            f"Available actions: search[<query>], finish[<answer>]"
+            + self._available_actions()
         )
         return self.render()
 
@@ -121,18 +137,24 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
         Args:
             action: One of:
                 - "search[query text]" — perform a retrieval search
+                - "fetch[https://...]" — read a page (Parallel backend only)
                 - "finish[answer text]" — submit final answer
                 - anything else — treated as a direct answer (fallback)
 
         Returns:
             (observation, reward, done, info)
         """
+        if self._parallel and self._session_id is None:
+            raise RuntimeError("Call reset() before taking Parallel search actions")
         self.step_count += 1
         action = action.strip() if action else ""
 
         # --- Parse action ---
         if action.startswith("search[") and action.endswith("]"):
             return self._handle_search(action[7:-1])
+        elif self._parallel and action.startswith("fetch[") and action.endswith("]"):
+            results = self.client.fetch(action[6:-1], session_id=self._session_id)
+            return self._handle_results(action[6:-1], results, "fetch")
         elif action.startswith("finish[") and action.endswith("]"):
             return self._handle_finish(action[7:-1])
         else:
@@ -141,7 +163,17 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
 
     def _handle_search(self, query: str) -> Tuple[str, float, bool, Dict[str, Any]]:
         """Handle a search[query] action."""
-        results = self.client.search(query, top_k=self.config.max_search_results)
+        if self._parallel:
+            results = self.client.search(query, top_k=self.config.max_search_results, session_id=self._session_id)
+        else:
+            results = self.client.search(query, top_k=self.config.max_search_results)
+        return self._handle_results(query, results, "search")
+
+    def _available_actions(self):
+        fetch = ", fetch[<url>]" if self._parallel else ""
+        return f"Available actions: search[<query>]{fetch}, finish[<answer>]"
+
+    def _handle_results(self, query, results, action_type):
 
         # Check if max steps reached
         done = self.step_count >= self.config.max_steps
@@ -150,20 +182,20 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
         if done:
             # Forced termination — no answer provided
             self.render_cache = (
-                f"Search results for '{query}':\n{results}\n\n"
+                f"{action_type.capitalize()} results for '{query}':\n{results}\n\n"
                 f"Maximum search steps reached. Episode ended without an answer."
             )
         else:
             self.render_cache = (
-                f"Search results for '{query}':\n{results}\n\n"
-                f"Available actions: search[<query>], finish[<answer>]"
+                f"{action_type.capitalize()} results for '{query}':\n{results}\n\n"
+                + self._available_actions()
             )
 
         info = {
             "action_is_effective": True,
             "action_is_valid": True,
             "success": False,
-            "action_type": "search",
+            "action_type": action_type,
             "query": query,
         }
         return self.render(), reward, done, info
@@ -192,7 +224,7 @@ class SearchEnv(BaseLanguageBasedEnv, gym.Env):
             done = self.step_count >= self.config.max_steps
             self.render_cache = (
                 "Invalid action. Use search[<query>] to search or finish[<answer>] to answer.\n"
-                "Available actions: search[<query>], finish[<answer>]"
+                + self._available_actions()
             )
             return self.render(), 0.0, done, {
                 "action_is_effective": False,

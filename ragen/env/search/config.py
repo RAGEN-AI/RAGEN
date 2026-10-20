@@ -36,3 +36,7 @@ class SearchEnvConfig:
     correct_reward: float = 1.0
     incorrect_reward: float = 0.0
     f1_threshold: float = 0.3
+
+    # Opt in to live web retrieval instead of the fixed Wikipedia corpus.
+    # mock_mode takes precedence and never makes network requests.
+    retrieval_backend: str = "local"  # local | parallel
